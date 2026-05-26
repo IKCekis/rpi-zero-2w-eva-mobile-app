@@ -6,14 +6,15 @@ import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Text } from 'react-native';
 
-import HomeScreen from '../screens/HomeScreen';
-import WorldScreen from '../screens/WorldScreen';
+import HomeScreen     from '../screens/HomeScreen';
+import WorldScreen    from '../screens/WorldScreen';
 import InventoryScreen from '../screens/InventoryScreen';
-import ProfileScreen from '../screens/ProfileScreen';
-import { OnboardingFlow } from '../onboarding/OnboardingFlow';
-import { useEvaStore } from '../store/useEvaStore';
+import ProfileScreen  from '../screens/ProfileScreen';
+import { OnboardingFlow }  from '../onboarding/OnboardingFlow';
+import { DeathScreen }     from '../screens/DeathScreen';
+import { useEvaStore }     from '../store/useEvaStore';
 
-const Tab = createBottomTabNavigator();
+const Tab   = createBottomTabNavigator();
 const Stack = createNativeStackNavigator();
 
 function TabIcon({ name, focused }: { name: string; focused: boolean }) {
@@ -32,30 +33,31 @@ function MainTabs() {
         tabBarIcon: ({ focused }) => <TabIcon name={route.name} focused={focused} />,
         tabBarActiveTintColor: accent,
         tabBarInactiveTintColor: '#aaa',
-        tabBarStyle: {
-          backgroundColor: '#fff',
-          borderTopColor: '#eee5d4',
-          paddingBottom: 4,
-        },
+        tabBarStyle: { backgroundColor: '#fff', borderTopColor: '#eee5d4', paddingBottom: 4 },
         tabBarLabelStyle: { fontSize: 11, fontWeight: '700' },
-      })}>
-      <Tab.Screen name="Home" component={HomeScreen} options={{ title: 'Ana Sayfa' }} />
-      <Tab.Screen name="World" component={WorldScreen} options={{ title: 'Dünya' }} />
+      })}
+    >
+      <Tab.Screen name="Home"      component={HomeScreen}      options={{ title: 'Ana Sayfa' }} />
+      <Tab.Screen name="World"     component={WorldScreen}     options={{ title: 'Dünya' }} />
       <Tab.Screen name="Inventory" component={InventoryScreen} options={{ title: 'Çanta' }} />
-      <Tab.Screen name="Profile" component={ProfileScreen} options={{ title: 'Profil' }} />
+      <Tab.Screen name="Profile"   component={ProfileScreen}   options={{ title: 'Profil' }} />
     </Tab.Navigator>
   );
 }
 
 export function AppNavigator() {
-  const [loading, setLoading] = useState(true);
+  const [loading,   setLoading]   = useState(true);
   const [onboarded, setOnboarded] = useState(false);
 
+  const { isDead, revive, restoreFromDisk } = useEvaStore();
+
   useEffect(() => {
-    AsyncStorage.getItem('eva_onboarded').then(val => {
+    (async () => {
+      await restoreFromDisk();
+      const val = await AsyncStorage.getItem('eva_onboarded');
       setOnboarded(val === 'true');
       setLoading(false);
-    });
+    })();
   }, []);
 
   const completeOnboarding = async () => {
@@ -63,11 +65,23 @@ export function AppNavigator() {
     setOnboarded(true);
   };
 
-  if (loading) return (
-    <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', backgroundColor: '#faf6f0' }}>
-      <ActivityIndicator size="large" color="#7BD3B8" />
-    </View>
-  );
+  const handleRevive = async () => {
+    revive();
+    setOnboarded(false); // go back to onboarding (fresh start)
+  };
+
+  if (loading) {
+    return (
+      <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', backgroundColor: '#faf6f0' }}>
+        <ActivityIndicator size="large" color="#7BD3B8" />
+      </View>
+    );
+  }
+
+  // Death screen overrides everything
+  if (isDead) {
+    return <DeathScreen onRevive={handleRevive} />;
+  }
 
   return (
     <NavigationContainer>

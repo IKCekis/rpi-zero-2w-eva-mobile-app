@@ -4,13 +4,18 @@ import {
   Mood, TabName, SceneName, Stats, Prefs, CookedDish,
   BLEStatus, Proximity,
 } from './types';
+import {
+  applyDecay, isDead as calcDead, saveState, loadAndDecay,
+  DECAY_PER_HOUR,
+} from '../services/StatDecay';
 
 const PREFS_KEY = 'eva.prefs';
+
+export type MediaMode = 'none' | 'music' | 'video';
 
 interface Toast { msg: string; key: number; }
 
 interface EvaState {
-  // Game state
   tab:         TabName;
   scene:       SceneName;
   mood:        Mood;
@@ -22,6 +27,9 @@ interface EvaState {
   inventory:   string[];
   prefs:       Prefs | null;
   lastToast:   Toast | null;
+  isDead:      boolean;
+  mediaMode:   MediaMode;
+  mediaStart:  number;   // timestamp when media mode started
 
   // BLE
   bleStatus:  BLEStatus;
@@ -30,29 +38,32 @@ interface EvaState {
   piPrefs:    Record<string, unknown> | null;
 
   // Actions
-  setTab:        (tab: TabName, scene?: SceneName) => void;
-  gotoScene:     (scene: SceneName) => void;
-  setPrefs:      (prefs: Prefs) => void;
-  setPiPrefs:    (p: Record<string, unknown>) => void;
-  setBLEStatus:  (s: BLEStatus) => void;
-  setProximity:  (p: Proximity) => void;
-  setRssi:       (r: number) => void;
-  doAction:      (action: 'feed' | 'play' | 'sleep' | 'wash') => void;
-  orderFood:     (item: { name: string; cost: number; fills: Partial<Stats> }) => void;
-  cookSuccess:   (dish: CookedDish) => void;
-  cookBurned:    (dishName: string) => void;
-  eatCooked:     (index: number) => void;
-  gymDone:       (intensity: number, likesExercise: boolean) => void;
-  cinemaDone:    (sleepy: boolean) => void;
-  buyItem:       (id: string, name: string, bonus: Partial<Stats>) => void;
-  spendCoins:    (amount: number) => void;
-  playgroundDone:(coins: number) => void;
-  toast:         (msg: string) => void;
-  resetGame:     () => void;
+  setTab:          (tab: TabName, scene?: SceneName) => void;
+  gotoScene:       (scene: SceneName) => void;
+  setPrefs:        (prefs: Prefs) => void;
+  setPiPrefs:      (p: Record<string, unknown>) => void;
+  setBLEStatus:    (s: BLEStatus) => void;
+  setProximity:    (p: Proximity) => void;
+  setRssi:         (r: number) => void;
+  setMediaMode:    (mode: MediaMode) => void;
+  orderFood:       (item: { name: string; cost: number; fills: Partial<Stats> }) => void;
+  cookSuccess:     (dish: CookedDish) => void;
+  cookBurned:      (dishName: string) => void;
+  eatCooked:       (index: number) => void;
+  gymDone:         (intensity: number, likesExercise: boolean) => void;
+  cinemaDone:      (sleepy: boolean) => void;
+  buyItem:         (id: string, name: string, bonus: Partial<Stats>) => void;
+  spendCoins:      (amount: number) => void;
+  playgroundDone:  (coins: number) => void;
+  toast:           (msg: string) => void;
+  applyRealtime:   (deltaMs: number) => void;  // called by a 30 s ticker
+  restoreFromDisk: () => Promise<void>;
+  persistToDisk:   () => Promise<void>;
+  revive:          () => void; // called after HNKOEE code accepted
 }
 
 const INITIAL_STATS: Stats = {
-  hunger: 68, happiness: 82, energy: 54, clean: 76, health: 65,
+  hunger: 68, happiness: 72, energy: 54, clean: 76, health: 60,
 };
 
 function clamp(v: number) { return Math.max(0, Math.min(100, v)); }
@@ -65,18 +76,29 @@ function modStats(stats: Stats, delta: Partial<Stats>): Stats {
   return s;
 }
 
+function moodFromStats(stats: Stats): Mood {
+  if (stats.energy    < 15) return 'sleepy';
+  if (stats.hunger    < 20) return 'hungry';
+  if (stats.happiness < 25) return 'sad';
+  if (stats.happiness > 80) return 'happy';
+  return 'happy';
+}
+
 export const useEvaStore = create<EvaState>((set, get) => ({
   tab:         'home',
   scene:       'bedroom',
   mood:        'happy',
   stats:       { ...INITIAL_STATS },
-  coins:       248,
+  coins:       180,
   charge:      0.78,
   accent:      '#7BD3B8',
   cookedItems: [],
   inventory:   [],
   prefs:       null,
   lastToast:   null,
+  isDead:      false,
+  mediaMode:   'none',
+  mediaStart:  0,
   bleStatus:   'disconnected',
   proximity:   'far',
   rssi:        -100,
@@ -93,56 +115,51 @@ export const useEvaStore = create<EvaState>((set, get) => ({
   },
 
   setPiPrefs: (piPrefs) => set({ piPrefs }),
-
   setBLEStatus: (bleStatus) => set({ bleStatus }),
-
   setProximity: (proximity) => set({ proximity }),
-
   setRssi: (rssi) => set({ rssi }),
 
-  doAction: (action) => {
-    const map: Record<string, Partial<Stats> & { toast: string }> = {
-      feed:  { hunger: 18, happiness: 4,  toast: 'Atıştırmalık zamanı!' },
-      play:  { happiness: 14, energy: -8, toast: 'Çok eğlenceli!' },
-      sleep: { energy: 22, hunger: -4,    toast: 'Zzz...' },
-      wash:  { clean: 30, happiness: 3,   toast: 'Tertemiz!' },
+  setMediaMode: (mode) => {
+    const { mediaMode, stats } = get();
+    if (mode === mediaMode) return;
+    set({ mediaMode: mode, mediaStart: mode !== 'none' ? Date.now() : 0 });
+    const toastMap: Record<MediaMode, string> = {
+      music: '🎵 Müzik modu başladı! Mutluluk artıyor.',
+      video: '🎬 Film modu! Eğlen ama enerjine dikkat.',
+      none:  'Medya modu kapandı.',
     };
-    const eff = map[action];
-    const { toast: msg, ...delta } = eff;
-    set(s => ({
-      stats:     modStats(s.stats, delta),
-      lastToast: { msg, key: Date.now() },
-    }));
+    set({ lastToast: { msg: toastMap[mode], key: Date.now() } });
   },
 
   orderFood: (item) => {
     const { coins, stats } = get();
     if (coins < item.cost) return;
+    const next = modStats(stats, item.fills);
     set({
       coins: coins - item.cost,
-      stats: modStats(stats, item.fills),
+      stats: next, mood: moodFromStats(next),
       lastToast: { msg: `Eva ${item.name} yedi!`, key: Date.now() },
     });
   },
 
   cookSuccess: (dish) => {
     const { prefs, stats } = get();
-    const likes = prefs?.likesCooking;
-    const delta: Partial<Stats> = { energy: -5 };
-    if (likes === true)  delta.happiness = 8;
-    if (likes === false) delta.happiness = -3;
+    const delta: Partial<Stats> = { energy: -6 };
+    if (prefs?.likesCooking === true)  delta.happiness = 10;
+    if (prefs?.likesCooking === false) delta.happiness = -4;
+    const next = modStats(stats, delta);
     set(s => ({
-      stats:       modStats(s.stats, delta),
+      stats: next, mood: moodFromStats(next),
       cookedItems: [...s.cookedItems, dish],
-      lastToast:   { msg: `${dish.name} pişirildi!`, key: Date.now() },
+      lastToast: { msg: `${dish.name} pişirildi!`, key: Date.now() },
     }));
   },
 
   cookBurned: (dishName) => {
-    set(s => ({
-      stats:     modStats(s.stats, { happiness: -5, energy: -3 }),
-      lastToast: { msg: `${dishName} yandı!`, key: Date.now() },
-    }));
+    set(s => {
+      const next = modStats(s.stats, { happiness: -6, energy: -4 });
+      return { stats: next, mood: moodFromStats(next), lastToast: { msg: `${dishName} yandı!`, key: Date.now() } };
+    });
   },
 
   eatCooked: (index) => {
@@ -151,41 +168,39 @@ export const useEvaStore = create<EvaState>((set, get) => ({
     if (!dish) return;
     const next = [...cookedItems];
     next.splice(index, 1);
-    set(s => ({
-      stats:       modStats(s.stats, { hunger: dish.hunger, happiness: dish.happiness }),
-      cookedItems: next,
-      lastToast:   { msg: `${dish.name} yendi!`, key: Date.now() },
-    }));
+    set(s => {
+      const ns = modStats(s.stats, { hunger: dish.hunger, happiness: dish.happiness });
+      return { stats: ns, mood: moodFromStats(ns), cookedItems: next, lastToast: { msg: `${dish.name} yendi!`, key: Date.now() } };
+    });
   },
 
   gymDone: (intensity, likesExercise) => {
     const delta: Partial<Stats> = {
       health:    intensity * 5,
-      energy:    -(intensity * 4),
-      happiness: likesExercise ? intensity * 2 : -(intensity * 2),
+      energy:    -(intensity * 5),
+      happiness: likesExercise ? intensity * 3 : -(intensity * 3),
     };
-    set(s => ({
-      stats:     modStats(s.stats, delta),
-      lastToast: { msg: `Sağlık +${intensity * 5}`, key: Date.now() },
-    }));
+    set(s => {
+      const ns = modStats(s.stats, delta);
+      return { stats: ns, mood: moodFromStats(ns), lastToast: { msg: `Sağlık +${intensity * 5}`, key: Date.now() } };
+    });
   },
 
   cinemaDone: (sleepy) => {
-    set(s => ({
-      stats:     modStats(s.stats, { happiness: 18, energy: sleepy ? -10 : -2 }),
-      lastToast: { msg: sleepy ? 'Biraz uyudu ama eğlendi!' : 'Harika filmdi!', key: Date.now() },
-    }));
+    set(s => {
+      const ns = modStats(s.stats, { happiness: 20, energy: sleepy ? -12 : -4 });
+      return { stats: ns, mood: moodFromStats(ns), lastToast: { msg: sleepy ? 'Uyudu ama eğlendi!' : 'Harika filmdi!', key: Date.now() } };
+    });
   },
 
   buyItem: (id, name, bonus) => {
     const { prefs } = get();
     const delta: Partial<Stats> = { ...bonus };
-    if (prefs?.likesShopping) delta.happiness = (delta.happiness ?? 0) + 5;
-    set(s => ({
-      inventory: [...s.inventory, id],
-      stats:     modStats(s.stats, delta),
-      lastToast: { msg: `${name} alındı!`, key: Date.now() },
-    }));
+    if (prefs?.likesShopping) delta.happiness = (delta.happiness ?? 0) + 6;
+    set(s => {
+      const ns = modStats(s.stats, delta);
+      return { inventory: [...s.inventory, id], stats: ns, mood: moodFromStats(ns), lastToast: { msg: `${name} alındı!`, key: Date.now() } };
+    });
   },
 
   spendCoins: (amount) => {
@@ -195,28 +210,66 @@ export const useEvaStore = create<EvaState>((set, get) => ({
   },
 
   playgroundDone: (coins) => {
-    set(s => ({
-      coins:     s.coins + coins,
-      stats:     modStats(s.stats, { happiness: 8, energy: -5 }),
-      lastToast: { msg: `+${coins}¢ kazandın!`, key: Date.now() },
-    }));
+    set(s => {
+      const ns = modStats(s.stats, { happiness: 8, energy: -6 });
+      return { coins: s.coins + coins, stats: ns, mood: moodFromStats(ns), lastToast: { msg: `+${coins}¢ kazandın!`, key: Date.now() } };
+    });
   },
 
   toast: (msg) => set({ lastToast: { msg, key: Date.now() } }),
 
-  resetGame: () => set({
-    tab:         'home',
-    scene:       'bedroom',
-    mood:        'happy',
-    stats:       { ...INITIAL_STATS },
-    coins:       248,
-    cookedItems: [],
-    inventory:   [],
-    lastToast:   null,
-  }),
+  // Called every 30 seconds by the App-level ticker
+  applyRealtime: (deltaMs) => {
+    const { stats, mediaMode, isDead } = get();
+    if (isDead) return;
+    const next = applyDecay(stats, deltaMs, mediaMode);
+    const dead = calcDead(next);
+    set({ stats: next, mood: moodFromStats(next), isDead: dead });
+  },
+
+  restoreFromDisk: async () => {
+    try {
+      const result = await loadAndDecay();
+      if (!result) return;
+
+      const dead = calcDead(result.state.stats);
+      set({
+        stats:     result.state.stats,
+        coins:     result.state.coins,
+        mediaMode: 'none',
+        isDead:    dead,
+        mood:      moodFromStats(result.state.stats),
+      });
+    } catch { /* first launch */ }
+
+    // Also restore prefs
+    try {
+      const raw = await AsyncStorage.getItem(PREFS_KEY);
+      if (raw) set({ prefs: JSON.parse(raw) });
+    } catch { /* ignore */ }
+  },
+
+  persistToDisk: async () => {
+    const { stats, coins, mediaMode } = get();
+    await saveState({ stats, coins, mediaMode });
+  },
+
+  revive: () => {
+    set({
+      isDead:      false,
+      stats:       { hunger: 50, happiness: 50, energy: 50, clean: 60, health: 50 },
+      coins:       100,
+      cookedItems: [],
+      inventory:   [],
+      prefs:       null,
+      mood:        'happy',
+      mediaMode:   'none',
+      mediaStart:  0,
+    });
+  },
 }));
 
-// Load prefs from AsyncStorage on startup
+// Kept for backwards-compat callers
 export async function loadPersistedPrefs(): Promise<Prefs | null> {
   try {
     const raw = await AsyncStorage.getItem(PREFS_KEY);

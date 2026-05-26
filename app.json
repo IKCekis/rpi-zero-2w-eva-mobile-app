@@ -30,7 +30,10 @@
         "android.permission.BLUETOOTH_SCAN",
         "android.permission.BLUETOOTH_CONNECT",
         "android.permission.ACCESS_FINE_LOCATION",
-        "android.permission.ACCESS_COARSE_LOCATION"
+        "android.permission.ACCESS_COARSE_LOCATION",
+        "android.permission.RECEIVE_BOOT_COMPLETED",
+        "android.permission.VIBRATE",
+        "android.permission.POST_NOTIFICATIONS"
       ]
     },
     "plugins": [
@@ -41,7 +44,18 @@
           "modes": ["peripheral", "central"],
           "bluetoothAlwaysPermission": "Eva, Pi anahtarlığınla bağlanmak için Bluetooth kullanır."
         }
-      ]
+      ],
+      [
+        "expo-notifications",
+        {
+          "icon": "./assets/icon.png",
+          "color": "#7BD3B8",
+          "sounds": []
+        }
+      ],
+      "expo-background-fetch",
+      "expo-task-manager",
+      "./plugins/with-media-state.js"
     ]
   }
 }
