@@ -1,0 +1,47 @@
+{
+  "expo": {
+    "name": "Eva",
+    "slug": "eva-mobile",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "icon": "./assets/icon.png",
+    "userInterfaceStyle": "light",
+    "splash": {
+      "backgroundColor": "#faf6ec"
+    },
+    "assetBundlePatterns": ["**/*"],
+    "ios": {
+      "supportsTablet": false,
+      "bundleIdentifier": "com.eva.mobile",
+      "infoPlist": {
+        "NSBluetoothAlwaysUsageDescription": "Eva, Pi anahtarlığınla bağlanmak için Bluetooth kullanır.",
+        "NSBluetoothPeripheralUsageDescription": "Eva, Pi anahtarlığınla bağlanmak için Bluetooth kullanır."
+      }
+    },
+    "android": {
+      "adaptiveIcon": {
+        "foregroundImage": "./assets/adaptive-icon.png",
+        "backgroundColor": "#faf6ec"
+      },
+      "package": "com.eva.mobile",
+      "permissions": [
+        "android.permission.BLUETOOTH",
+        "android.permission.BLUETOOTH_ADMIN",
+        "android.permission.BLUETOOTH_SCAN",
+        "android.permission.BLUETOOTH_CONNECT",
+        "android.permission.ACCESS_FINE_LOCATION",
+        "android.permission.ACCESS_COARSE_LOCATION"
+      ]
+    },
+    "plugins": [
+      [
+        "react-native-ble-plx",
+        {
+          "isBackgroundEnabled": true,
+          "modes": ["peripheral", "central"],
+          "bluetoothAlwaysPermission": "Eva, Pi anahtarlığınla bağlanmak için Bluetooth kullanır."
+        }
+      ]
+    ]
+  }
+}
