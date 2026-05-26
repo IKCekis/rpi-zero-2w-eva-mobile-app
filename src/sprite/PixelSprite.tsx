@@ -2,20 +2,21 @@ import React, { useMemo } from 'react';
 import Svg, { Rect } from 'react-native-svg';
 
 interface PixelSpriteProps {
-  rows:    string[];
+  rows?:   string[];
   palette: Record<string, string>;
   scale?:  number;
 }
 
 export function PixelSprite({ rows, palette, scale = 4 }: PixelSpriteProps) {
-  const h = rows.length;
-  const w = rows[0]?.length ?? 0;
+  const safeRows = rows ?? [];
+  const h = safeRows.length;
+  const w = safeRows[0]?.length ?? 0;
 
   const cells = useMemo(() => {
     const out: React.ReactElement[] = [];
     for (let y = 0; y < h; y++) {
       for (let x = 0; x < w; x++) {
-        const ch = rows[y][x];
+        const ch = safeRows[y][x];
         const fill = palette[ch];
         if (!fill || ch === ' ' || ch === '.') continue;
         out.push(
@@ -25,7 +26,7 @@ export function PixelSprite({ rows, palette, scale = 4 }: PixelSpriteProps) {
       }
     }
     return out;
-  }, [rows, palette]);
+  }, [safeRows, palette]);
 
   return (
     <Svg

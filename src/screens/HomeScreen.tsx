@@ -77,8 +77,16 @@ export default function HomeScreen() {
     setManualMediaMode(next, setMediaMode);
   };
 
+  const openQuickAction = (action: ActiveModal) => {
+    setActiveModal(action);
+    if (action) {
+      sendCommand({ cmd: 'activity', type: `${action}_start` });
+    }
+  };
+
   const onWashClose = (completed: boolean) => {
     setActiveModal(null);
+    sendCommand({ cmd: 'activity', type: completed ? 'wash_done' : 'wash_cancel' });
     if (completed) {
       useEvaStore.setState(s => ({
         stats:     { ...s.stats, clean: Math.min(100, s.stats.clean + 28), happiness: Math.min(100, s.stats.happiness + 4) },
@@ -89,7 +97,10 @@ export default function HomeScreen() {
 
   const onFeedClose = (choice: SnackId | null) => {
     setActiveModal(null);
-    if (!choice) return;
+    if (!choice) {
+      sendCommand({ cmd: 'activity', type: 'feed_cancel' });
+      return;
+    }
     const delta = SNACK_DELTAS[choice];
     useEvaStore.setState(s => {
       const ns = { ...s.stats };
@@ -98,10 +109,12 @@ export default function HomeScreen() {
       });
       return { stats: ns, lastToast: { msg: `Mmm! +${delta.hunger} Açlık 😋`, key: Date.now() } };
     });
+    sendCommand({ cmd: 'activity', type: 'feed_done', item: choice });
   };
 
   const onRestClose = (completed: boolean) => {
     setActiveModal(null);
+    sendCommand({ cmd: 'activity', type: completed ? 'rest_done' : 'rest_cancel' });
     if (completed) {
       useEvaStore.setState(s => ({
         stats: { ...s.stats, energy: Math.min(100, s.stats.energy + 22), health: Math.min(100, s.stats.health + 3) },
@@ -112,7 +125,12 @@ export default function HomeScreen() {
 
   const onBubbleClose = (score: number) => {
     setActiveModal(null);
-    if (score > 0) playgroundDone(score * 2);
+    if (score > 0) {
+      playgroundDone(score * 2);
+      sendCommand({ cmd: 'activity', type: 'play_done', score, earned: score * 2 });
+    } else {
+      sendCommand({ cmd: 'activity', type: 'play_cancel' });
+    }
   };
 
   const mediaBadge = MEDIA_LABEL[mediaMode];
@@ -198,7 +216,7 @@ export default function HomeScreen() {
           {QUICK_ACTIONS.map(a => (
             <TouchableOpacity
               key={a.id}
-              onPress={() => setActiveModal(a.id as ActiveModal)}
+              onPress={() => openQuickAction(a.id as ActiveModal)}
               style={styles.actBtn}
               activeOpacity={0.8}
             >

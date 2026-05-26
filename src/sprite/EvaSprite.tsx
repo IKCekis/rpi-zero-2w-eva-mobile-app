@@ -1,7 +1,7 @@
 import React from 'react';
 import { PixelSprite } from './PixelSprite';
 
-export type EvaMood = 'happy' | 'sleepy' | 'sad' | 'excited' | 'hungry';
+export type EvaMood = 'happy' | 'sleepy' | 'sad' | 'excited' | 'hungry' | 'neutral';
 
 const PALETTE: Record<string, string> = {
   o: '#1d2733', b: '#7BD3B8', l: '#A8E6CF', d: '#5BB89B',
@@ -141,6 +141,7 @@ const HUNGRY = [
 
 const SPRITES: Record<EvaMood, string[]> = {
   happy: HAPPY, sleepy: SLEEPY, sad: SAD, excited: EXCITED, hungry: HUNGRY,
+  neutral: HAPPY,
 };
 
 interface Props {
@@ -150,5 +151,5 @@ interface Props {
 }
 
 export function EvaSprite({ mood = 'happy', scale = 4, palette = PALETTE }: Props) {
-  return <PixelSprite rows={SPRITES[mood]} palette={palette} scale={scale} />;
+  return <PixelSprite rows={SPRITES[mood] ?? HAPPY} palette={palette} scale={scale} />;
 }

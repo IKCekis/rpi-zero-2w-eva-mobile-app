@@ -54,6 +54,12 @@ export function KitchenActivity({ onBack }: { onBack: () => void }) {
     setPhase('select'); setChosen(null); setProgress(0); setResult(null);
   };
 
+  const startCooking = (dish: CookedDish) => {
+    setChosen(dish);
+    setPhase('cooking');
+    sendCommand({ cmd: 'activity', type: 'cook_start', dish: dish.name });
+  };
+
   return (
     <ActivityFrame scene="kitchen" title="Mutfak"
       sub={likes ? 'Eva pişirmeyi seviyor — keyifli iş!' : 'Eva pişirmeyi sevmiyor ama yapacak…'}
@@ -66,7 +72,7 @@ export function KitchenActivity({ onBack }: { onBack: () => void }) {
           <Text style={styles.label}>Ne pişirelim?</Text>
           <View style={styles.grid}>
             {DISHES.map(d => (
-              <TouchableOpacity key={d.id} onPress={() => { setChosen(d); setPhase('cooking'); }}
+              <TouchableOpacity key={d.id} onPress={() => startCooking(d)}
                 activeOpacity={0.8} style={styles.dishCard}>
                 <View style={styles.dishIcon}>
                   <ItemSprite name={d.sprite} scale={2.4} />
