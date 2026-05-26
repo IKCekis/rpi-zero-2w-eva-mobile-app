@@ -1,5 +1,6 @@
 import React from 'react';
 import { View, Text, ScrollView, StyleSheet } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useEvaStore } from '../store/useEvaStore';
 import { CoinHud } from '../components/CoinHud';
 import { ConnectionBadge } from '../components/ConnectionBadge';
@@ -15,6 +16,7 @@ const BASE_ITEMS = [
 
 export default function InventoryScreen() {
   const { coins, bleStatus, proximity, accent = '#7BD3B8', inventory } = useEvaStore();
+  const insets = useSafeAreaInsets();
 
   // merge base with earned
   const counts: Record<string, number> = {};
@@ -29,7 +31,11 @@ export default function InventoryScreen() {
   const total = items.reduce((s, i) => s + i.count, 0);
 
   return (
-    <ScrollView style={styles.screen} showsVerticalScrollIndicator={false}>
+    <ScrollView
+      style={styles.screen}
+      contentContainerStyle={{ paddingTop: insets.top + 8, paddingBottom: 24 }}
+      showsVerticalScrollIndicator={false}
+    >
       <View style={styles.topRow}>
         <ConnectionBadge status={bleStatus} proximity={proximity} accent={accent} />
         <CoinHud coins={coins} />
@@ -63,7 +69,7 @@ export default function InventoryScreen() {
 
 const styles = StyleSheet.create({
   screen:     { flex: 1, paddingHorizontal: 16 },
-  topRow:     { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12, paddingTop: 8 },
+  topRow:     { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 },
   title:      { fontSize: 22, fontWeight: '800', color: '#3a3530', marginBottom: 2 },
   sub:        { fontSize: 11, color: '#8a7f6e', marginBottom: 14 },
   grid:       { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginBottom: 24 },

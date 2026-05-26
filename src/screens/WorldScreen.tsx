@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { View, Text, TouchableOpacity, ScrollView, StyleSheet } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useEvaStore } from '../store/useEvaStore';
 import { CoinHud } from '../components/CoinHud';
 import { ConnectionBadge } from '../components/ConnectionBadge';
@@ -30,6 +31,7 @@ const PLACES: {
 export default function WorldScreen() {
   const { coins, scene: activeScene, bleStatus, proximity, accent = '#7BD3B8' } = useEvaStore();
   const [openScene, setOpenScene] = useState<SceneName | null>(null);
+  const insets = useSafeAreaInsets();
 
   // Render scene activity
   const goBack = () => setOpenScene(null);
@@ -47,7 +49,11 @@ export default function WorldScreen() {
   }
 
   return (
-    <ScrollView style={styles.screen} showsVerticalScrollIndicator={false}>
+    <ScrollView
+      style={styles.screen}
+      contentContainerStyle={{ paddingTop: insets.top + 8, paddingBottom: 24 }}
+      showsVerticalScrollIndicator={false}
+    >
       <View style={styles.topRow}>
         <ConnectionBadge status={bleStatus} proximity={proximity} accent={accent} />
         <CoinHud coins={coins} />
@@ -96,7 +102,7 @@ export default function WorldScreen() {
 
 const styles = StyleSheet.create({
   screen:       { flex: 1, paddingHorizontal: 16 },
-  topRow:       { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12, paddingTop: 8 },
+  topRow:       { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 },
   sectionLabel: { fontSize: 11, fontWeight: '700', color: '#8a7f6e', letterSpacing: 1, textTransform: 'uppercase', marginBottom: 10 },
   grid:         { flexDirection: 'row', flexWrap: 'wrap', gap: 10, marginBottom: 24 },
   card:         {

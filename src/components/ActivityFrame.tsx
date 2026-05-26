@@ -1,5 +1,6 @@
 import React from 'react';
 import { View, Text, TouchableOpacity, StyleSheet, ScrollView } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { CoinHud } from './CoinHud';
 import { ScenePlaceholder } from './ScenePlaceholder';
 import { EvaSprite, EvaMood } from '../sprite/EvaSprite';
@@ -16,8 +17,12 @@ interface Props {
 }
 
 export function ActivityFrame({ scene, title, sub, onBack, coins, mood = 'happy', children }: Props) {
+  const insets = useSafeAreaInsets();
   return (
-    <ScrollView contentContainerStyle={styles.container} showsVerticalScrollIndicator={false}>
+    <ScrollView
+      contentContainerStyle={[styles.container, { paddingTop: insets.top + 8 }]}
+      showsVerticalScrollIndicator={false}
+    >
       <View style={styles.topRow}>
         <TouchableOpacity onPress={onBack} style={styles.backBtn}>
           <Text style={styles.backTxt}>← Dünya</Text>

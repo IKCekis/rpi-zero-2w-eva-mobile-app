@@ -1,5 +1,6 @@
 import React from 'react';
 import { View, Text, ScrollView, StyleSheet } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useEvaStore } from '../store/useEvaStore';
 import { EvaSprite } from '../sprite/EvaSprite';
 import { StatBar } from '../components/StatBar';
@@ -14,9 +15,14 @@ export default function ProfileScreen() {
   } = useEvaStore();
 
   const level = 7, xp = 62;
+  const insets = useSafeAreaInsets();
 
   return (
-    <ScrollView style={styles.screen} showsVerticalScrollIndicator={false}>
+    <ScrollView
+      style={styles.screen}
+      contentContainerStyle={{ paddingTop: insets.top + 8, paddingBottom: 24 }}
+      showsVerticalScrollIndicator={false}
+    >
       <View style={styles.topRow}>
         <ConnectionBadge status={bleStatus} proximity={proximity} accent={accent} />
         <CoinHud coins={coins} />
@@ -101,7 +107,7 @@ export default function ProfileScreen() {
 
 const styles = StyleSheet.create({
   screen:      { flex: 1, paddingHorizontal: 16 },
-  topRow:      { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12, paddingTop: 8 },
+  topRow:      { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 },
   profileCard: { backgroundColor: '#fff', borderRadius: 18, padding: 16, flexDirection: 'row', gap: 14, alignItems: 'center', marginBottom: 12, shadowColor: '#000', shadowOpacity: 0.06, shadowRadius: 4, elevation: 2 },
   avatar:      { width: 96, height: 96, borderRadius: 16, alignItems: 'center', justifyContent: 'center' },
   profileInfo: { flex: 1 },
