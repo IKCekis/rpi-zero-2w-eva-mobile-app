@@ -105,8 +105,17 @@ class EvaBluetoothManager {
     this._connecting = true;
     this.callbacks?.onStatusChange('connecting');
     try {
-      // autoConnect:false — we manage reconnect ourselves to avoid double-loop
       const connected = await device.connect({ autoConnect: false });
+
+      // Register disconnect handler BEFORE any GATT operations so we never
+      // miss a drop that happens during service discovery or readPrefs.
+      connected.onDisconnected(() => {
+        this.handleDisconnect();
+      });
+
+      // MTU negotiation improves throughput and connection stability on Android.
+      try { await connected.requestMTU(185); } catch { /* not critical */ }
+
       await connected.discoverAllServicesAndCharacteristics();
       this.device = connected;
       this._connecting = false;
@@ -114,13 +123,9 @@ class EvaBluetoothManager {
 
       await this.readPrefs();
       this.startRSSIPolling();
-
-      // Register on the connected device object, not the scanned one
-      connected.onDisconnected(() => {
-        this.handleDisconnect();
-      });
     } catch (e) {
       this._connecting = false;
+      this.device = null;   // clear inconsistent state
       this.callbacks?.onStatusChange('disconnected');
       this.scheduleReconnect();
     }
@@ -142,16 +147,27 @@ class EvaBluetoothManager {
     }, 10_000);
   }
 
+  private _rssiErrors = 0;
+
   private startRSSIPolling() {
+    this._rssiErrors = 0;
     this.stopRSSIPolling();
     this.rssiTimer = setInterval(async () => {
       if (!this.device) return;
       try {
         const d = await this.device.readRSSI();
+        this._rssiErrors = 0;
         const rssi = d.rssi ?? -100;
         this.callbacks?.onRssiUpdate(rssi);
         this.updateProximity(rssi);
-      } catch { /* ignore */ }
+      } catch {
+        this._rssiErrors++;
+        // 5 consecutive RSSI failures → treat as silent disconnect
+        if (this._rssiErrors >= 5) {
+          this._rssiErrors = 0;
+          this.handleDisconnect();
+        }
+      }
     }, RSSI_POLL_INTERVAL_MS);
   }
 
