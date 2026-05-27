@@ -20,8 +20,8 @@ export function ConnectScreen() {
   const [verifying,   setVerifying]   = useState(false);
   const [scanning,    setScanning]    = useState(false);
 
-  const scan = useCallback(() => {
-    setDevices([]);
+  const scan = useCallback((clearList = true) => {
+    if (clearList) setDevices([]);
     setScanning(true);
     startScan((d) => {
       setDevices(prev => {
@@ -34,7 +34,8 @@ export function ConnectScreen() {
   // Start scan on mount and when status goes back to disconnected
   useEffect(() => {
     if (bleStatus === 'disconnected' || bleStatus === 'off') {
-      if (!scanning) scan();
+      // Don't clear list on auto-rescan — avoids "device disappears" UX
+      if (!scanning) scan(false);
     }
     // Show PIN entry overlay when connection is established but PIN not confirmed
     if (bleStatus === 'pin_required') {
@@ -82,8 +83,7 @@ export function ConnectScreen() {
 
   const handleForget = async () => {
     await forgetDevice();
-    setDevices([]);
-    scan();
+    scan(true);
   };
 
   // Sort: saved device first

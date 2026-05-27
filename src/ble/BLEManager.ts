@@ -123,7 +123,7 @@ class EvaBluetoothManager {
     setTimeout(() => {
       this.manager.stopDeviceScan();
       if (!this.device) this.callbacks?.onStatusChange('disconnected');
-    }, 15_000);
+    }, 30_000);
   }
 
   stopScan(): void {
@@ -158,7 +158,7 @@ class EvaBluetoothManager {
     setTimeout(() => {
       this.manager.stopDeviceScan();
       if (!this.device) this.callbacks?.onStatusChange('disconnected');
-    }, 15_000);
+    }, 30_000);
   }
 
   // ── Connect to a device chosen by the user in ConnectScreen ──────────────
@@ -333,17 +333,42 @@ class EvaBluetoothManager {
     } catch { /* ignore */ }
   }
 
+  private async sendCommandReliable(cmd: Record<string, unknown>): Promise<void> {
+    if (!this.device) return;
+    await this.device.writeCharacteristicWithResponseForService(
+      EVA_SERVICE_UUID, CMD_CHAR_UUID, this.b64(JSON.stringify(cmd))
+    );
+  }
+
   // ── PIN flow ──────────────────────────────────────────────────────────────
 
   async verifyPin(pin: string): Promise<boolean> {
-    await this.sendCommand({ cmd: 'verify_pin', pin });
-    await new Promise(r => setTimeout(r, 800));
+    // Stop keepalive so it doesn't queue ahead of our write.
+    this.stopKeepalive();
+    // Write with response so we know Pi received it (not fire-and-forget).
+    try {
+      await this.sendCommandReliable({ cmd: 'verify_pin', pin });
+    } catch {
+      // Fallback if write-with-response unsupported
+      await this.sendCommand({ cmd: 'verify_pin', pin });
+    }
+    await new Promise(r => setTimeout(r, 1000));
     const prefs = await this.readPrefs();
-    const ok = prefs?._pin_ok === true;
-    if (ok) {
-      this.stopKeepalive();
+    if (prefs?._pin_ok === true) {
       this.callbacks?.onStatusChange('connected');
       this.startRSSIPolling();
+      return true;
+    }
+    // One retry in case Pi was still processing
+    await new Promise(r => setTimeout(r, 600));
+    const prefs2 = await this.readPrefs();
+    const ok = prefs2?._pin_ok === true;
+    if (ok) {
+      this.callbacks?.onStatusChange('connected');
+      this.startRSSIPolling();
+    } else {
+      // Restart keepalive so connection stays alive for another attempt
+      this.startKeepalive();
     }
     return ok;
   }
