@@ -5,6 +5,7 @@ export const EVA_SERVICE_UUID     = 'a1f7b540-0f8e-4a64-a027-f21f65ff8c1d';
 export const MOOD_CHAR_UUID       = 'a1f7b541-0f8e-4a64-a027-f21f65ff8c1d';
 export const PREFS_CHAR_UUID      = 'a1f7b542-0f8e-4a64-a027-f21f65ff8c1d';
 export const CMD_CHAR_UUID        = 'a1f7b543-0f8e-4a64-a027-f21f65ff8c1d';
+export const STATE_CHAR_UUID      = 'a1f7b544-0f8e-4a64-a027-f21f65ff8c1d';
 
 // RSSI thresholds for proximity
 export const RSSI_CLOSE  = -65;   // >  -65 dBm → close

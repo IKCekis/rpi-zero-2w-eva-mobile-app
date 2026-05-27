@@ -1,4 +1,26 @@
 export type Mood = 'happy' | 'sleepy' | 'sad' | 'excited' | 'hungry';
+
+// Stat/meta snapshot pushed from Pi via STATE_CHAR notify
+export interface PiStats {
+  fullness:    number;  // maps to hunger
+  love:        number;  // maps to happiness
+  energy:      number;
+  cleanliness: number;  // maps to clean
+  health:      number;
+}
+
+export interface PiMeta {
+  money:    number;
+  level:    number;
+  xp:       number;
+  age_days: number;
+}
+
+export interface PiState {
+  stats: PiStats;
+  meta:  PiMeta;
+  mood:  string;
+}
 export type TabName = 'home' | 'world' | 'inventory' | 'profile';
 export type SceneName = 'bedroom' | 'restaurant' | 'kitchen' | 'playground'
                       | 'market' | 'gym' | 'cafe' | 'cinema';

@@ -7,11 +7,13 @@ import {
   MOOD_CHAR_UUID,
   PREFS_CHAR_UUID,
   CMD_CHAR_UUID,
+  STATE_CHAR_UUID,
   RSSI_CLOSE,
   RSSI_MEDIUM,
   RSSI_POLL_INTERVAL_MS,
   FAR_TIMEOUT_MS,
 } from './constants';
+import type { PiState } from '../store/types';
 
 export type BLEStatus = 'off' | 'disconnected' | 'scanning' | 'connecting' | 'connected' | 'pin_required';
 export type Proximity  = 'close' | 'medium' | 'far';
@@ -28,6 +30,7 @@ export interface BLECallbacks {
   onProximityChange: (proximity: Proximity) => void;
   onRssiUpdate:      (rssi: number) => void;
   onPrefsRead:       (prefs: Record<string, unknown>) => void;
+  onStateUpdate:     (state: PiState) => void;
 }
 
 const SAVED_DEVICE_KEY = 'eva.ble.device_id';
@@ -36,9 +39,10 @@ class EvaBluetoothManager {
   private manager:          BleManager;
   private device:           Device | null = null;
   private callbacks:        BLECallbacks | null = null;
-  private rssiTimer:        ReturnType<typeof setInterval>  | null = null;
-  private farTimer:         ReturnType<typeof setTimeout>   | null = null;
-  private reconnectTimer:   ReturnType<typeof setTimeout>   | null = null;
+  private rssiTimer:         ReturnType<typeof setInterval>  | null = null;
+  private farTimer:          ReturnType<typeof setTimeout>   | null = null;
+  private reconnectTimer:    ReturnType<typeof setTimeout>   | null = null;
+  private stateSubscription: { remove: () => void } | null = null;
   private currentProximity: Proximity = 'far';
   private _connecting       = false;
   private _rssiErrors       = 0;
@@ -171,11 +175,25 @@ class EvaBluetoothManager {
       this.device = connected;
       this._connecting = false;
 
+      // Subscribe to Pi state notifications
+      this.stateSubscription?.remove();
+      this.stateSubscription = connected.monitorCharacteristicForService(
+        EVA_SERVICE_UUID, STATE_CHAR_UUID,
+        (error, char) => {
+          if (error || !char?.value) return;
+          try {
+            const data: PiState = JSON.parse(Buffer.from(char.value, 'base64').toString('utf-8'));
+            this.callbacks?.onStateUpdate(data);
+          } catch { /* ignore malformed */ }
+        }
+      );
+
       // For saved devices skip PIN; for new devices require PIN confirmation.
       this.callbacks?.onStatusChange(isNew ? 'pin_required' : 'connected');
 
       await this.readPrefs();
-      this.startRSSIPolling();
+      // RSSI polling only after PIN is confirmed (keeps connection stable during pairing).
+      if (!isNew) this.startRSSIPolling();
     } catch {
       this._connecting = false;
       this.device = null;
@@ -187,6 +205,8 @@ class EvaBluetoothManager {
   private handleDisconnect() {
     if (this._connecting) return;
     this.stopRSSIPolling();
+    this.stateSubscription?.remove();
+    this.stateSubscription = null;
     this.device = null;
     this.callbacks?.onStatusChange('disconnected');
     this.callbacks?.onProximityChange('far');
@@ -295,15 +315,20 @@ class EvaBluetoothManager {
 
   async verifyPin(pin: string): Promise<boolean> {
     await this.sendCommand({ cmd: 'verify_pin', pin });
-    await new Promise(r => setTimeout(r, 600));
-    // Read back PREFS_CHAR — Pi sets _pin_ok:true on success
+    await new Promise(r => setTimeout(r, 800));
     const prefs = await this.readPrefs();
-    return prefs?._pin_ok === true;
+    const ok = prefs?._pin_ok === true;
+    if (ok) {
+      this.callbacks?.onStatusChange('connected');
+      this.startRSSIPolling();
+    }
+    return ok;
   }
 
   async skipPin(): Promise<void> {
     await this.sendCommand({ cmd: 'skip_pin' });
     this.callbacks?.onStatusChange('connected');
+    this.startRSSIPolling();
   }
 
   // ── Lifecycle ─────────────────────────────────────────────────────────────
@@ -313,6 +338,7 @@ class EvaBluetoothManager {
 
   destroy() {
     this.stopRSSIPolling();
+    this.stateSubscription?.remove();
     if (this.reconnectTimer) clearTimeout(this.reconnectTimer);
     this.device?.cancelConnection();
     this.manager.destroy();

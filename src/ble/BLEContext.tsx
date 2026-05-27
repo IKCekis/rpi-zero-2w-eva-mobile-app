@@ -1,7 +1,7 @@
 import React, { createContext, useContext, useEffect, useRef, useState } from 'react';
 import { AppState } from 'react-native';
 import { evaBLE, BLEStatus, Proximity, ScannedDevice } from './BLEManager';
-import { useEvaStore } from '../store/useEvaStore';
+import { useEvaStore, injectBLESend } from '../store/useEvaStore';
 
 interface BLEContextValue {
   sendMood:        (mood: string, stats: Record<string, number>) => Promise<void>;
@@ -36,16 +36,20 @@ export function BLEProvider({ children }: { children: React.ReactNode }) {
   const setProximity = useEvaStore(s => s.setProximity);
   const setRssi      = useEvaStore(s => s.setRssi);
   const setPiPrefs   = useEvaStore(s => s.setPiPrefs);
+  const setPiState   = useEvaStore(s => s.setPiState);
   const appStateRef  = useRef(AppState.currentState);
 
   const [savedDeviceId, setSavedDeviceId] = useState<string | null>(null);
 
   useEffect(() => {
+    injectBLESend((cmd) => evaBLE.sendCommand(cmd));
+
     evaBLE.setCallbacks({
       onStatusChange:    (s: BLEStatus)  => setBLEStatus(s),
       onProximityChange: (p: Proximity)  => setProximity(p),
       onRssiUpdate:      (r: number)     => setRssi(r),
       onPrefsRead:       (prefs)         => setPiPrefs(prefs),
+      onStateUpdate:     (state)         => setPiState(state),
     });
 
     evaBLE.init().then(() => {

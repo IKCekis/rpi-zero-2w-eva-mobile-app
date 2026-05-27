@@ -2,7 +2,7 @@ import { create } from 'zustand';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import {
   Mood, TabName, SceneName, Stats, Prefs, CookedDish,
-  BLEStatus, Proximity,
+  BLEStatus, Proximity, PiState,
 } from './types';
 import {
   applyDecay, isDead as calcDead, saveState, loadAndDecay,
@@ -10,6 +10,13 @@ import {
 } from '../services/StatDecay';
 
 const PREFS_KEY = 'eva.prefs';
+
+// BLE command sender injected by BLEContext to avoid circular deps.
+// When connected, Pi is the source of truth; local mutations are optimistic UI.
+let _piSend: ((cmd: Record<string, unknown>) => void) | null = null;
+export function injectBLESend(fn: (cmd: Record<string, unknown>) => void) {
+  _piSend = fn;
+}
 
 export type MediaMode = 'none' | 'music' | 'video';
 
@@ -36,12 +43,14 @@ interface EvaState {
   proximity:  Proximity;
   rssi:       number;
   piPrefs:    Record<string, unknown> | null;
+  piState:    PiState | null;  // authoritative stat/meta snapshot from Pi
 
   // Actions
   setTab:          (tab: TabName, scene?: SceneName) => void;
   gotoScene:       (scene: SceneName) => void;
   setPrefs:        (prefs: Prefs) => void;
   setPiPrefs:      (p: Record<string, unknown>) => void;
+  setPiState:      (s: PiState) => void;
   setBLEStatus:    (s: BLEStatus) => void;
   setProximity:    (p: Proximity) => void;
   setRssi:         (r: number) => void;
@@ -103,6 +112,7 @@ export const useEvaStore = create<EvaState>((set, get) => ({
   proximity:   'far',
   rssi:        -100,
   piPrefs:     null,
+  piState:     null,
 
   setTab: (tab, scene) =>
     set({ tab, ...(scene ? { scene, tab: 'world' as TabName } : {}) }),
@@ -115,6 +125,27 @@ export const useEvaStore = create<EvaState>((set, get) => ({
   },
 
   setPiPrefs: (piPrefs) => set({ piPrefs }),
+
+  setPiState: (piState) => {
+    // Sync local stat fields so existing screens continue to work unchanged.
+    const s = piState.stats;
+    const m = piState.meta;
+    const dead = s.fullness <= 0 && s.love <= 0 && s.energy <= 0;
+    set({
+      piState,
+      stats: {
+        hunger:    s.fullness,
+        happiness: s.love,
+        energy:    s.energy,
+        clean:     s.cleanliness,
+        health:    s.health,
+      },
+      coins:  m.money,
+      mood:   (piState.mood as Mood) ?? 'happy',
+      isDead: dead,
+    });
+  },
+
   setBLEStatus: (bleStatus) => set({ bleStatus }),
   setProximity: (proximity) => set({ proximity }),
   setRssi: (rssi) => set({ rssi }),
@@ -134,12 +165,11 @@ export const useEvaStore = create<EvaState>((set, get) => ({
   orderFood: (item) => {
     const { coins, stats } = get();
     if (coins < item.cost) return;
+    // Optimistic local update; Pi will push authoritative values via STATE_CHAR.
     const next = modStats(stats, item.fills);
-    set({
-      coins: coins - item.cost,
-      stats: next, mood: moodFromStats(next),
-      lastToast: { msg: `Eva ${item.name} yedi!`, key: Date.now() },
-    });
+    set({ coins: coins - item.cost, stats: next, mood: moodFromStats(next),
+          lastToast: { msg: `Eva ${item.name} yedi!`, key: Date.now() } });
+    _piSend?.({ cmd: 'activity', type: 'feed_done', item: item.name, score: 1.0 });
   },
 
   cookSuccess: (dish) => {
@@ -148,18 +178,19 @@ export const useEvaStore = create<EvaState>((set, get) => ({
     if (prefs?.likesCooking === true)  delta.happiness = 10;
     if (prefs?.likesCooking === false) delta.happiness = -4;
     const next = modStats(stats, delta);
-    set(s => ({
-      stats: next, mood: moodFromStats(next),
-      cookedItems: [...s.cookedItems, dish],
-      lastToast: { msg: `${dish.name} pişirildi!`, key: Date.now() },
-    }));
+    set(s => ({ stats: next, mood: moodFromStats(next),
+                cookedItems: [...s.cookedItems, dish],
+                lastToast: { msg: `${dish.name} pişirildi!`, key: Date.now() } }));
+    _piSend?.({ cmd: 'activity', type: 'cook_success', score: 1.0 });
   },
 
   cookBurned: (dishName) => {
     set(s => {
       const next = modStats(s.stats, { happiness: -6, energy: -4 });
-      return { stats: next, mood: moodFromStats(next), lastToast: { msg: `${dishName} yandı!`, key: Date.now() } };
+      return { stats: next, mood: moodFromStats(next),
+               lastToast: { msg: `${dishName} yandı!`, key: Date.now() } };
     });
+    _piSend?.({ cmd: 'activity', type: 'cook_burned', score: 0.0 });
   },
 
   eatCooked: (index) => {
@@ -170,8 +201,10 @@ export const useEvaStore = create<EvaState>((set, get) => ({
     next.splice(index, 1);
     set(s => {
       const ns = modStats(s.stats, { hunger: dish.hunger, happiness: dish.happiness });
-      return { stats: ns, mood: moodFromStats(ns), cookedItems: next, lastToast: { msg: `${dish.name} yendi!`, key: Date.now() } };
+      return { stats: ns, mood: moodFromStats(ns), cookedItems: next,
+               lastToast: { msg: `${dish.name} yendi!`, key: Date.now() } };
     });
+    _piSend?.({ cmd: 'activity', type: 'eat', score: 1.0 });
   },
 
   gymDone: (intensity, likesExercise) => {
@@ -182,15 +215,19 @@ export const useEvaStore = create<EvaState>((set, get) => ({
     };
     set(s => {
       const ns = modStats(s.stats, delta);
-      return { stats: ns, mood: moodFromStats(ns), lastToast: { msg: `Sağlık +${intensity * 5}`, key: Date.now() } };
+      return { stats: ns, mood: moodFromStats(ns),
+               lastToast: { msg: `Sağlık +${intensity * 5}`, key: Date.now() } };
     });
+    _piSend?.({ cmd: 'activity', type: 'gym_done', score: Math.min(1, intensity / 3) });
   },
 
   cinemaDone: (sleepy) => {
     set(s => {
       const ns = modStats(s.stats, { happiness: 20, energy: sleepy ? -12 : -4 });
-      return { stats: ns, mood: moodFromStats(ns), lastToast: { msg: sleepy ? 'Uyudu ama eğlendi!' : 'Harika filmdi!', key: Date.now() } };
+      return { stats: ns, mood: moodFromStats(ns),
+               lastToast: { msg: sleepy ? 'Uyudu ama eğlendi!' : 'Harika filmdi!', key: Date.now() } };
     });
+    _piSend?.({ cmd: 'activity', type: 'cinema_done', score: sleepy ? 0.7 : 1.0 });
   },
 
   buyItem: (id, name, bonus) => {
@@ -199,8 +236,10 @@ export const useEvaStore = create<EvaState>((set, get) => ({
     if (prefs?.likesShopping) delta.happiness = (delta.happiness ?? 0) + 6;
     set(s => {
       const ns = modStats(s.stats, delta);
-      return { inventory: [...s.inventory, id], stats: ns, mood: moodFromStats(ns), lastToast: { msg: `${name} alındı!`, key: Date.now() } };
+      return { inventory: [...s.inventory, id], stats: ns, mood: moodFromStats(ns),
+               lastToast: { msg: `${name} alındı!`, key: Date.now() } };
     });
+    _piSend?.({ cmd: 'activity', type: 'market_buy', score: 1.0 });
   },
 
   spendCoins: (amount) => {
@@ -209,19 +248,22 @@ export const useEvaStore = create<EvaState>((set, get) => ({
     set({ coins: coins - amount });
   },
 
-  playgroundDone: (coins) => {
+  playgroundDone: (earned) => {
     set(s => {
       const ns = modStats(s.stats, { happiness: 8, energy: -6 });
-      return { coins: s.coins + coins, stats: ns, mood: moodFromStats(ns), lastToast: { msg: `+${coins}¢ kazandın!`, key: Date.now() } };
+      return { coins: s.coins + earned, stats: ns, mood: moodFromStats(ns),
+               lastToast: { msg: `+${earned}¢ kazandın!`, key: Date.now() } };
     });
+    _piSend?.({ cmd: 'activity', type: 'play_done', score: Math.min(1, earned / 10) });
   },
 
   toast: (msg) => set({ lastToast: { msg, key: Date.now() } }),
 
-  // Called every 30 seconds by the App-level ticker
+  // Called every 30 seconds by the App-level ticker.
+  // Skipped when Pi is connected (Pi owns decay in that case).
   applyRealtime: (deltaMs) => {
-    const { stats, mediaMode, isDead } = get();
-    if (isDead) return;
+    const { stats, mediaMode, isDead, piState } = get();
+    if (isDead || piState !== null) return;  // Pi handles decay when connected
     const next = applyDecay(stats, deltaMs, mediaMode);
     const dead = calcDead(next);
     set({ stats: next, mood: moodFromStats(next), isDead: dead });
