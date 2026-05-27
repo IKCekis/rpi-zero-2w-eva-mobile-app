@@ -6,12 +6,13 @@ import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Text } from 'react-native';
 
-import HomeScreen     from '../screens/HomeScreen';
-import WorldScreen    from '../screens/WorldScreen';
+import HomeScreen      from '../screens/HomeScreen';
+import WorldScreen     from '../screens/WorldScreen';
 import InventoryScreen from '../screens/InventoryScreen';
-import ProfileScreen  from '../screens/ProfileScreen';
+import ProfileScreen   from '../screens/ProfileScreen';
 import { OnboardingFlow }  from '../onboarding/OnboardingFlow';
 import { DeathScreen }     from '../screens/DeathScreen';
+import { ConnectScreen }   from '../screens/ConnectScreen';
 import { useEvaStore }     from '../store/useEvaStore';
 
 const Tab   = createBottomTabNavigator();
@@ -49,7 +50,7 @@ export function AppNavigator() {
   const [loading,   setLoading]   = useState(true);
   const [onboarded, setOnboarded] = useState(false);
 
-  const { isDead, revive, restoreFromDisk } = useEvaStore();
+  const { isDead, revive, restoreFromDisk, bleStatus } = useEvaStore();
 
   useEffect(() => {
     (async () => {
@@ -67,7 +68,7 @@ export function AppNavigator() {
 
   const handleRevive = async () => {
     revive();
-    setOnboarded(false); // go back to onboarding (fresh start)
+    setOnboarded(false);
   };
 
   if (loading) {
@@ -78,10 +79,7 @@ export function AppNavigator() {
     );
   }
 
-  // Death screen overrides everything
-  if (isDead) {
-    return <DeathScreen onRevive={handleRevive} />;
-  }
+  if (isDead) return <DeathScreen onRevive={handleRevive} />;
 
   return (
     <NavigationContainer>
@@ -90,6 +88,8 @@ export function AppNavigator() {
           <Stack.Screen name="Onboarding">
             {() => <OnboardingFlow onComplete={completeOnboarding} />}
           </Stack.Screen>
+        ) : bleStatus !== 'connected' ? (
+          <Stack.Screen name="Connect" component={ConnectScreen} />
         ) : (
           <Stack.Screen name="Main" component={MainTabs} />
         )}

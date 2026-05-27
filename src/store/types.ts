@@ -2,7 +2,7 @@ export type Mood = 'happy' | 'sleepy' | 'sad' | 'excited' | 'hungry';
 export type TabName = 'home' | 'world' | 'inventory' | 'profile';
 export type SceneName = 'bedroom' | 'restaurant' | 'kitchen' | 'playground'
                       | 'market' | 'gym' | 'cafe' | 'cinema';
-export type BLEStatus = 'off' | 'disconnected' | 'scanning' | 'connecting' | 'connected';
+export type BLEStatus = 'off' | 'disconnected' | 'scanning' | 'connecting' | 'connected' | 'pin_required';
 export type Proximity = 'close' | 'medium' | 'far';
 
 export interface Stats {
