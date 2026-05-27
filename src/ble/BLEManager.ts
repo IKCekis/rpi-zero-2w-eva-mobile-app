@@ -296,7 +296,7 @@ class EvaBluetoothManager {
   async sendMood(mood: string, stats: Record<string, number>) {
     if (!this.device) return;
     try {
-      await this.device.writeCharacteristicWithoutResponseForService(
+      await this.device.writeCharacteristicWithResponseForService(
         EVA_SERVICE_UUID, MOOD_CHAR_UUID, this.b64(JSON.stringify({ mood, stats }))
       );
     } catch { /* ignore */ }
@@ -305,7 +305,7 @@ class EvaBluetoothManager {
   async sendPrefs(prefs: Record<string, unknown>) {
     if (!this.device) return;
     try {
-      await this.device.writeCharacteristicWithoutResponseForService(
+      await this.device.writeCharacteristicWithResponseForService(
         EVA_SERVICE_UUID, PREFS_CHAR_UUID, this.b64(JSON.stringify(prefs))
       );
     } catch { /* ignore */ }
@@ -327,32 +327,20 @@ class EvaBluetoothManager {
   async sendCommand(cmd: Record<string, unknown>) {
     if (!this.device) return;
     try {
-      await this.device.writeCharacteristicWithoutResponseForService(
+      // write-with-response: bluezero on Pi silently drops write-without-response
+      // (AcquireWrite socket not implemented), so we always use the reliable path.
+      await this.device.writeCharacteristicWithResponseForService(
         EVA_SERVICE_UUID, CMD_CHAR_UUID, this.b64(JSON.stringify(cmd))
       );
     } catch { /* ignore */ }
   }
 
-  private async sendCommandReliable(cmd: Record<string, unknown>): Promise<void> {
-    if (!this.device) return;
-    await this.device.writeCharacteristicWithResponseForService(
-      EVA_SERVICE_UUID, CMD_CHAR_UUID, this.b64(JSON.stringify(cmd))
-    );
-  }
-
   // ── PIN flow ──────────────────────────────────────────────────────────────
 
   async verifyPin(pin: string): Promise<boolean> {
-    // Stop keepalive so it doesn't queue ahead of our write.
     this.stopKeepalive();
-    // Write with response so we know Pi received it (not fire-and-forget).
-    try {
-      await this.sendCommandReliable({ cmd: 'verify_pin', pin });
-    } catch {
-      // Fallback if write-with-response unsupported
-      await this.sendCommand({ cmd: 'verify_pin', pin });
-    }
-    await new Promise(r => setTimeout(r, 1000));
+    await this.sendCommand({ cmd: 'verify_pin', pin });
+    await new Promise(r => setTimeout(r, 800));
     const prefs = await this.readPrefs();
     if (prefs?._pin_ok === true) {
       this.callbacks?.onStatusChange('connected');
@@ -367,7 +355,6 @@ class EvaBluetoothManager {
       this.callbacks?.onStatusChange('connected');
       this.startRSSIPolling();
     } else {
-      // Restart keepalive so connection stays alive for another attempt
       this.startKeepalive();
     }
     return ok;
