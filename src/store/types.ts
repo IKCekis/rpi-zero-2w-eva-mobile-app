@@ -17,9 +17,10 @@ export interface PiMeta {
 }
 
 export interface PiState {
-  stats: PiStats;
-  meta:  PiMeta;
-  mood:  string;
+  stats:       PiStats;
+  meta:        PiMeta;
+  mood:        string;
+  pending_pin?: string;  // injected by ble_server for local PIN verification
 }
 export type TabName = 'home' | 'world' | 'inventory' | 'profile';
 export type SceneName = 'bedroom' | 'restaurant' | 'kitchen' | 'playground'

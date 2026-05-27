@@ -44,9 +44,10 @@ class EvaBluetoothManager {
   private reconnectTimer:    ReturnType<typeof setTimeout>   | null = null;
   private keepaliveTimer:    ReturnType<typeof setInterval>  | null = null;
   private stateSubscription: { remove: () => void } | null = null;
-  private currentProximity: Proximity = 'far';
-  private _connecting       = false;
-  private _rssiErrors       = 0;
+  private currentProximity:  Proximity = 'far';
+  private _connecting        = false;
+  private _rssiErrors        = 0;
+  private _lastPendingPin:   string    = '';
 
   savedDeviceId: string | null = null;
 
@@ -186,6 +187,7 @@ class EvaBluetoothManager {
           if (error || !char?.value) return;
           try {
             const data: PiState = JSON.parse(Buffer.from(char.value, 'base64').toString('utf-8'));
+            if (data.pending_pin) this._lastPendingPin = data.pending_pin;
             this.callbacks?.onStateUpdate(data);
           } catch { /* ignore malformed */ }
         }
@@ -339,25 +341,41 @@ class EvaBluetoothManager {
 
   async verifyPin(pin: string): Promise<boolean> {
     this.stopKeepalive();
-    await this.sendCommand({ cmd: 'verify_pin', pin });
-    await new Promise(r => setTimeout(r, 800));
-    const prefs = await this.readPrefs();
-    if (prefs?._pin_ok === true) {
+
+    // Try write-based verification first
+    let writeOk = false;
+    try {
+      await this.sendCommand({ cmd: 'verify_pin', pin });
+      writeOk = true;
+    } catch { /* write may be unsupported — fall through to local check */ }
+
+    if (writeOk) {
+      await new Promise(r => setTimeout(r, 800));
+      const prefs = await this.readPrefs();
+      if (prefs?._pin_ok === true) {
+        this.callbacks?.onStatusChange('connected');
+        this.startRSSIPolling();
+        return true;
+      }
+      await new Promise(r => setTimeout(r, 600));
+      const prefs2 = await this.readPrefs();
+      if (prefs2?._pin_ok === true) {
+        this.callbacks?.onStatusChange('connected');
+        this.startRSSIPolling();
+        return true;
+      }
+    }
+
+    // Fallback: Pi sends pending_pin via STATE_CHAR — verify locally.
+    // Works even when GATT writes are unreliable.
+    if (this._lastPendingPin && pin === this._lastPendingPin) {
       this.callbacks?.onStatusChange('connected');
       this.startRSSIPolling();
       return true;
     }
-    // One retry in case Pi was still processing
-    await new Promise(r => setTimeout(r, 600));
-    const prefs2 = await this.readPrefs();
-    const ok = prefs2?._pin_ok === true;
-    if (ok) {
-      this.callbacks?.onStatusChange('connected');
-      this.startRSSIPolling();
-    } else {
-      this.startKeepalive();
-    }
-    return ok;
+
+    this.startKeepalive();
+    return false;
   }
 
   async skipPin(): Promise<void> {
