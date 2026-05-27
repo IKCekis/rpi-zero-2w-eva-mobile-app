@@ -42,6 +42,7 @@ class EvaBluetoothManager {
   private rssiTimer:         ReturnType<typeof setInterval>  | null = null;
   private farTimer:          ReturnType<typeof setTimeout>   | null = null;
   private reconnectTimer:    ReturnType<typeof setTimeout>   | null = null;
+  private keepaliveTimer:    ReturnType<typeof setInterval>  | null = null;
   private stateSubscription: { remove: () => void } | null = null;
   private currentProximity: Proximity = 'far';
   private _connecting       = false;
@@ -102,15 +103,17 @@ class EvaBluetoothManager {
 
     const seen = new Set<string>();
     this.manager.startDeviceScan(
-      [EVA_SERVICE_UUID],
+      null,
       { allowDuplicates: false },
       (error, device) => {
         if (error || !device) return;
+        const name = device.name || device.localName || '';
+        if (!name.startsWith('EVA-')) return;
         if (seen.has(device.id)) return;
         seen.add(device.id);
         onDeviceFound({
           id:   device.id,
-          name: device.name || device.localName || device.id,
+          name: name || device.id,
           rssi: device.rssi ?? -100,
           raw:  device,
         });
@@ -141,7 +144,7 @@ class EvaBluetoothManager {
     const targetId = this.savedDeviceId;
 
     this.manager.startDeviceScan(
-      [EVA_SERVICE_UUID],
+      null,
       { allowDuplicates: false },
       async (error, device) => {
         if (error || !device) return;
@@ -192,8 +195,12 @@ class EvaBluetoothManager {
       this.callbacks?.onStatusChange(isNew ? 'pin_required' : 'connected');
 
       await this.readPrefs();
-      // RSSI polling only after PIN is confirmed (keeps connection stable during pairing).
-      if (!isNew) this.startRSSIPolling();
+      if (isNew) {
+        // Keep Android connection alive during PIN entry; RSSI starts after PIN confirmed.
+        this.startKeepalive();
+      } else {
+        this.startRSSIPolling();
+      }
     } catch {
       this._connecting = false;
       this.device = null;
@@ -205,6 +212,7 @@ class EvaBluetoothManager {
   private handleDisconnect() {
     if (this._connecting) return;
     this.stopRSSIPolling();
+    this.stopKeepalive();
     this.stateSubscription?.remove();
     this.stateSubscription = null;
     this.device = null;
@@ -247,6 +255,20 @@ class EvaBluetoothManager {
   private stopRSSIPolling() {
     if (this.rssiTimer) { clearInterval(this.rssiTimer); this.rssiTimer = null; }
     if (this.farTimer)  { clearTimeout(this.farTimer);   this.farTimer  = null; }
+  }
+
+  private startKeepalive() {
+    this.stopKeepalive();
+    this.keepaliveTimer = setInterval(async () => {
+      if (!this.device) { this.stopKeepalive(); return; }
+      try {
+        await this.device.readCharacteristicForService(EVA_SERVICE_UUID, PREFS_CHAR_UUID);
+      } catch { /* ignore — just keeping link alive */ }
+    }, 5_000);
+  }
+
+  private stopKeepalive() {
+    if (this.keepaliveTimer) { clearInterval(this.keepaliveTimer); this.keepaliveTimer = null; }
   }
 
   private updateProximity(rssi: number) {
@@ -319,6 +341,7 @@ class EvaBluetoothManager {
     const prefs = await this.readPrefs();
     const ok = prefs?._pin_ok === true;
     if (ok) {
+      this.stopKeepalive();
       this.callbacks?.onStatusChange('connected');
       this.startRSSIPolling();
     }
@@ -327,6 +350,7 @@ class EvaBluetoothManager {
 
   async skipPin(): Promise<void> {
     await this.sendCommand({ cmd: 'skip_pin' });
+    this.stopKeepalive();
     this.callbacks?.onStatusChange('connected');
     this.startRSSIPolling();
   }
@@ -338,6 +362,7 @@ class EvaBluetoothManager {
 
   destroy() {
     this.stopRSSIPolling();
+    this.stopKeepalive();
     this.stateSubscription?.remove();
     if (this.reconnectTimer) clearTimeout(this.reconnectTimer);
     this.device?.cancelConnection();

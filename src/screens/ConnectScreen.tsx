@@ -33,8 +33,8 @@ export function ConnectScreen() {
 
   // Start scan on mount and when status goes back to disconnected
   useEffect(() => {
-    if (bleStatus === 'disconnected' || bleStatus === 'off' || bleStatus === 'scanning') {
-      scan();
+    if (bleStatus === 'disconnected' || bleStatus === 'off') {
+      if (!scanning) scan();
     }
     // Show PIN entry overlay when connection is established but PIN not confirmed
     if (bleStatus === 'pin_required') {
@@ -107,6 +107,9 @@ export function ConnectScreen() {
       <View style={styles.header}>
         <Text style={styles.title}>EVA ile Bağlan</Text>
         <Text style={styles.sub}>Yakındaki EVA cihazını seç</Text>
+        <Text style={styles.hint}>
+          Telefon Bluetooth ayarlarından değil, buradan bağlan
+        </Text>
       </View>
 
       {/* Device list */}
@@ -215,6 +218,7 @@ const styles = StyleSheet.create({
   header:          { alignItems: 'center', paddingVertical: 28, paddingHorizontal: 16 },
   title:           { fontSize: 26, fontWeight: '900', color: '#1d2733', letterSpacing: -0.5 },
   sub:             { fontSize: 13, color: '#8a7f6e', marginTop: 4 },
+  hint:            { fontSize: 11, color: '#b8a89a', marginTop: 6, textAlign: 'center' },
   listWrap:        { flex: 1, paddingHorizontal: 16 },
   scanningRow:     { flexDirection: 'row', alignItems: 'center', gap: 10, paddingVertical: 20 },
   scanningTxt:     { fontSize: 14, color: '#8a7f6e' },
