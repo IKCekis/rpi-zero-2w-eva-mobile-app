@@ -48,6 +48,10 @@ class EvaBluetoothManager {
   private _connecting        = false;
   private _rssiErrors        = 0;
   private _lastPendingPin:   string    = '';
+  // Device we want to stay connected to — set on every connect attempt, including
+  // mid-pairing (before the device is saved). Lets us auto-reconnect when Android
+  // drops the link during PIN entry instead of kicking the user back to the list.
+  private _reconnectTargetId: string | null = null;
 
   savedDeviceId: string | null = null;
 
@@ -69,6 +73,8 @@ class EvaBluetoothManager {
 
   async forgetSavedDevice(): Promise<void> {
     this.savedDeviceId = null;
+    this._reconnectTargetId = null;
+    if (this.reconnectTimer) clearTimeout(this.reconnectTimer);
     await AsyncStorage.removeItem(SAVED_DEVICE_KEY);
   }
 
@@ -131,9 +137,10 @@ class EvaBluetoothManager {
     this.manager.stopDeviceScan();
   }
 
-  // ── Auto-reconnect to saved device (called on app foreground / init) ──────
+  // ── Auto-reconnect to the current target (saved device OR mid-pairing) ────
   async scanAndReconnect(): Promise<void> {
-    if (!this.savedDeviceId || this.device || this._connecting) return;
+    const targetId = this._reconnectTargetId ?? this.savedDeviceId;
+    if (!targetId || this.device || this._connecting) return;
 
     const btState = await this.manager.state();
     if (btState !== State.PoweredOn) { this.callbacks?.onStatusChange('off'); return; }
@@ -142,7 +149,6 @@ class EvaBluetoothManager {
     if (!hasPerms) { this.callbacks?.onStatusChange('off'); return; }
 
     this.callbacks?.onStatusChange('scanning');
-    const targetId = this.savedDeviceId;
 
     this.manager.startDeviceScan(
       null,
@@ -151,7 +157,9 @@ class EvaBluetoothManager {
         if (error || !device) return;
         if (device.id === targetId) {
           this.manager.stopDeviceScan();
-          await this.connectInternal(device, /* isNew */ false);
+          // Not "new" only if it's the saved device — otherwise we're still
+          // mid-pairing and connectInternal will re-check PREFS for _pin_ok.
+          await this.connectInternal(device, /* isNew */ targetId !== this.savedDeviceId);
         }
       }
     );
@@ -170,6 +178,7 @@ class EvaBluetoothManager {
   private async connectInternal(device: Device, isNew: boolean): Promise<void> {
     if (this._connecting) return;
     this._connecting = true;
+    this._reconnectTargetId = device.id;
     this.callbacks?.onStatusChange('connecting');
     try {
       const connected = await device.connect({ autoConnect: false });
@@ -205,6 +214,9 @@ class EvaBluetoothManager {
           this.startKeepalive();
         }
       } else {
+        // Saved device — tell the Pi to skip PIN so its OLED leaves the PIN
+        // screen (covers auto-reconnect after the Pi's PIN TTL regenerated one).
+        try { await this.sendCommand({ cmd: 'skip_pin' }); } catch { /* ignore */ }
         this.callbacks?.onStatusChange('connected');
         await this.readPrefs();
         this.startRSSIPolling();
@@ -213,7 +225,7 @@ class EvaBluetoothManager {
       this._connecting = false;
       this.device = null;
       this.callbacks?.onStatusChange('disconnected');
-      if (this.savedDeviceId) this.scheduleReconnect();
+      if (this._reconnectTargetId) this.scheduleReconnect();
     }
   }
 
@@ -224,16 +236,22 @@ class EvaBluetoothManager {
     this.stateSubscription?.remove();
     this.stateSubscription = null;
     this.device = null;
-    this.callbacks?.onStatusChange('disconnected');
     this.callbacks?.onProximityChange('far');
-    if (this.savedDeviceId) this.scheduleReconnect();
+    // Reconnect to whatever we're targeting — including a device we're still
+    // pairing with — so a mid-PIN-entry drop recovers instead of dead-ending.
+    if (this._reconnectTargetId) {
+      this.callbacks?.onStatusChange('scanning');
+      this.scheduleReconnect();
+    } else {
+      this.callbacks?.onStatusChange('disconnected');
+    }
   }
 
   private scheduleReconnect() {
     if (this.reconnectTimer) clearTimeout(this.reconnectTimer);
     this.reconnectTimer = setTimeout(() => {
       if (!this.device) this.scanAndReconnect();
-    }, 10_000);
+    }, 2_500);
   }
 
   cancelReconnect() {
@@ -332,6 +350,19 @@ class EvaBluetoothManager {
     return null;
   }
 
+  // Direct read of STATE_CHAR — Pi merges pending_pin + _pin_ok into it, so this
+  // works even when notifications haven't been delivered yet.
+  async readState(): Promise<(PiState & { _pin_ok?: boolean }) | null> {
+    if (!this.device) return null;
+    try {
+      const char = await this.device.readCharacteristicForService(EVA_SERVICE_UUID, STATE_CHAR_UUID);
+      if (char.value) {
+        return JSON.parse(Buffer.from(char.value, 'base64').toString('utf-8'));
+      }
+    } catch { /* ignore */ }
+    return null;
+  }
+
   async sendCommand(cmd: Record<string, unknown>) {
     if (!this.device) return;
     try {
@@ -345,40 +376,49 @@ class EvaBluetoothManager {
 
   // ── PIN flow ──────────────────────────────────────────────────────────────
 
+  private markPaired() {
+    this.callbacks?.onStatusChange('connected');
+    this.startRSSIPolling();
+  }
+
+  // Wait briefly for auto-reconnect to restore the link (Android often drops it
+  // exactly as the user submits the PIN). Returns true once a device is present.
+  private async waitForDevice(timeoutMs: number): Promise<boolean> {
+    const start = Date.now();
+    while (!this.device && Date.now() - start < timeoutMs) {
+      await new Promise(r => setTimeout(r, 300));
+    }
+    return this.device !== null;
+  }
+
   async verifyPin(pin: string): Promise<boolean> {
     this.stopKeepalive();
-    // Snapshot now: STATE_CHAR notifications may overwrite _lastPendingPin
-    // mid-verify if a rapid reconnect causes Pi to push a new pending_pin.
-    const pinSnapshot = this._lastPendingPin;
 
-    let writeOk = false;
-    try {
-      await this.sendCommand({ cmd: 'verify_pin', pin });
-      writeOk = true;
-    } catch { /* write may be unsupported — fall through to local check */ }
+    // A transient drop may have killed the link right as the user hit confirm.
+    // Give auto-reconnect a chance before judging the code.
+    if (!this.device) await this.waitForDevice(8000);
 
-    if (writeOk) {
-      await new Promise(r => setTimeout(r, 800));
-      const prefs = await this.readPrefs();
-      if (prefs?._pin_ok === true) {
-        this.callbacks?.onStatusChange('connected');
-        this.startRSSIPolling();
-        return true;
-      }
-      await new Promise(r => setTimeout(r, 600));
-      const prefs2 = await this.readPrefs();
-      if (prefs2?._pin_ok === true) {
-        this.callbacks?.onStatusChange('connected');
-        this.startRSSIPolling();
-        return true;
-      }
-    }
+    // Freshest PIN the Pi advertises: prefer a direct STATE_CHAR read (carries
+    // pending_pin + _pin_ok), fall back to the last value pushed via notify.
+    let knownPin = this._lastPendingPin;
+    const st = await this.readState();
+    if (st?.pending_pin) knownPin = String(st.pending_pin);
+    if (st?._pin_ok === true) { this.markPaired(); return true; }
 
-    // Fallback: use the PIN snapshot captured before any async ops so that
-    // a STATE_CHAR update mid-verify can't invalidate a correct entry.
-    if (pinSnapshot && pin === pinSnapshot) {
-      this.callbacks?.onStatusChange('connected');
-      this.startRSSIPolling();
+    // Tell the Pi (best effort — may not land on a flaky link).
+    try { await this.sendCommand({ cmd: 'verify_pin', pin }); } catch { /* ignore */ }
+
+    // Confirm via PREFS _pin_ok.
+    await new Promise(r => setTimeout(r, 700));
+    const prefs = await this.readPrefs();
+    if (prefs?._pin_ok === true) { this.markPaired(); return true; }
+
+    // Local verification: the Pi broadcast this exact PIN to us, so a match is
+    // authoritative even when the write/read-back round-trip failed.
+    if (knownPin && pin === knownPin) {
+      // Nudge the Pi out of PIN mode on its OLED (best effort, non-blocking).
+      this.sendCommand({ cmd: 'verify_pin', pin }).catch(() => {});
+      this.markPaired();
       return true;
     }
 
@@ -386,11 +426,24 @@ class EvaBluetoothManager {
     return false;
   }
 
+  // User cancelled pairing — stop reconnecting and drop the link.
+  cancelPairing(): void {
+    this._reconnectTargetId = null;
+    if (this.reconnectTimer) clearTimeout(this.reconnectTimer);
+    this.stopKeepalive();
+    this.stopRSSIPolling();
+    this.stateSubscription?.remove();
+    this.stateSubscription = null;
+    this.manager.stopDeviceScan();
+    this.device?.cancelConnection().catch(() => {});
+    this.device = null;
+    this.callbacks?.onStatusChange('disconnected');
+  }
+
   async skipPin(): Promise<void> {
     await this.sendCommand({ cmd: 'skip_pin' });
     this.stopKeepalive();
-    this.callbacks?.onStatusChange('connected');
-    this.startRSSIPolling();
+    this.markPaired();
   }
 
   // ── Lifecycle ─────────────────────────────────────────────────────────────
@@ -399,6 +452,7 @@ class EvaBluetoothManager {
   get deviceId()    { return this.device?.id ?? null; }
 
   destroy() {
+    this._reconnectTargetId = null;
     this.stopRSSIPolling();
     this.stopKeepalive();
     this.stateSubscription?.remove();

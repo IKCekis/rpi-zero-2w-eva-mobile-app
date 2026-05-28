@@ -12,6 +12,8 @@ interface BLEContextValue {
   connectToDevice: (scanned: ScannedDevice, isNew: boolean) => Promise<void>;
   verifyPin:       (pin: string) => Promise<boolean>;
   skipPin:         () => Promise<void>;
+  cancelPairing:   () => void;
+  reconnect:       () => Promise<void>;
   saveDevice:      (deviceId: string) => Promise<void>;
   forgetDevice:    () => Promise<void>;
   savedDeviceId:   string | null;
@@ -26,6 +28,8 @@ const BLEContext = createContext<BLEContextValue>({
   connectToDevice: async () => {},
   verifyPin:       async () => false,
   skipPin:         async () => {},
+  cancelPairing:   () => {},
+  reconnect:       async () => {},
   saveDevice:      async () => {},
   forgetDevice:    async () => {},
   savedDeviceId:   null,
@@ -76,6 +80,8 @@ export function BLEProvider({ children }: { children: React.ReactNode }) {
     connectToDevice: (d, isNew)    => evaBLE.connectToDevice(d, isNew),
     verifyPin:       (pin)         => evaBLE.verifyPin(pin),
     skipPin:         ()            => evaBLE.skipPin(),
+    cancelPairing:   ()            => evaBLE.cancelPairing(),
+    reconnect:       ()            => evaBLE.scanAndReconnect(),
     saveDevice:      async (id)    => { await evaBLE.saveDevice(id); setSavedDeviceId(id); },
     forgetDevice:    async ()      => { await evaBLE.forgetSavedDevice(); setSavedDeviceId(null); },
     savedDeviceId,

@@ -9,7 +9,7 @@ import { useEvaStore } from '../store/useEvaStore';
 
 export function ConnectScreen() {
   const insets = useSafeAreaInsets();
-  const { startScan, stopScan, connectToDevice, verifyPin, skipPin, saveDevice, forgetDevice, savedDeviceId } = useBLE();
+  const { startScan, stopScan, connectToDevice, verifyPin, cancelPairing, saveDevice, forgetDevice, savedDeviceId } = useBLE();
   const bleStatus = useEvaStore(s => s.bleStatus);
 
   const [devices,     setDevices]     = useState<ScannedDevice[]>([]);
@@ -34,13 +34,14 @@ export function ConnectScreen() {
   // Start scan on mount and when status goes back to disconnected
   useEffect(() => {
     if (bleStatus === 'disconnected' || bleStatus === 'off') {
-      // Don't clear list on auto-rescan — avoids "device disappears" UX
-      if (!scanning) scan(false);
+      // While the PIN overlay is up, pairing is in progress and BLEManager owns
+      // reconnection — don't start a competing scan (it fights the reconnect and
+      // makes the device flicker in/out of the list).
+      if (!scanning && !pinVisible) scan(false);
     }
     // Show PIN entry overlay when connection is established but PIN not confirmed
     if (bleStatus === 'pin_required') {
       setPinVisible(true);
-      setPin('');
       setPinError('');
     }
   }, [bleStatus]);
@@ -55,12 +56,8 @@ export function ConnectScreen() {
     setConnecting(device.id);
     const isNew = device.id !== savedDeviceId;
     try {
+      // Saved device skips PIN inside connectInternal; new device → 'pin_required'.
       await connectToDevice(device, isNew);
-      if (!isNew) {
-        // Saved device — skip PIN automatically
-        await skipPin();
-      }
-      // For new devices, bleStatus becomes 'pin_required' → PIN overlay shows
     } catch {
       setConnecting(null);
     }
@@ -201,7 +198,7 @@ export function ConnectScreen() {
                 : <Text style={styles.pinConfirmTxt}>Onayla</Text>}
             </TouchableOpacity>
             <TouchableOpacity
-              onPress={() => { setPinVisible(false); setConnecting(null); scan(); }}
+              onPress={() => { cancelPairing(); setPinVisible(false); setConnecting(null); scan(); }}
               style={styles.pinCancelBtn}
             >
               <Text style={styles.pinCancelTxt}>İptal</Text>
