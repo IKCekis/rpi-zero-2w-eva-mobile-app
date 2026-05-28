@@ -14,6 +14,7 @@ import { FeedSnack, SnackId } from '../minigames/FeedSnack';
 import { RestGame } from '../minigames/RestGame';
 import { BubbleGame } from '../minigames/BubbleGame';
 import { setManualMediaMode } from '../services/MediaWatcher';
+import { Haptics } from '../services/Haptics';
 
 type ActiveModal = 'wash' | 'feed' | 'rest' | 'play' | null;
 
@@ -46,7 +47,7 @@ const MEDIA_LABEL: Record<MediaMode, { emoji: string; label: string; color: stri
 export default function HomeScreen() {
   const {
     mood, stats, coins, scene, bleStatus, proximity, accent = '#7BD3B8',
-    mediaMode, playgroundDone, setMediaMode,
+    mediaMode, playgroundDone, setMediaMode, piState,
   } = useEvaStore();
   const { sendMood, sendCommand } = useBLE();
   const insets = useSafeAreaInsets();
@@ -84,14 +85,20 @@ export default function HomeScreen() {
     }
   };
 
+  // When connected, the Pi owns stats: send the requested effect (Pi stat keys)
+  // and let STATE_CHAR push the truth, instead of optimistic local setState.
   const onWashClose = (completed: boolean) => {
     setActiveModal(null);
-    sendCommand({ cmd: 'activity', type: completed ? 'wash_done' : 'wash_cancel' });
-    if (completed) {
+    if (!completed) { sendCommand({ cmd: 'activity', type: 'wash_cancel' }); return; }
+    Haptics.success();
+    sendCommand({ cmd: 'activity', type: 'wash_done', effect: { cleanliness: 28, love: 4 } });
+    if (!piState) {
       useEvaStore.setState(s => ({
         stats:     { ...s.stats, clean: Math.min(100, s.stats.clean + 28), happiness: Math.min(100, s.stats.happiness + 4) },
         lastToast: { msg: 'Tertemiz! +28 🧼', key: Date.now() },
       }));
+    } else {
+      useEvaStore.setState({ lastToast: { msg: 'Tertemiz! 🧼', key: Date.now() } });
     }
   };
 
@@ -101,33 +108,44 @@ export default function HomeScreen() {
       sendCommand({ cmd: 'activity', type: 'feed_cancel' });
       return;
     }
+    Haptics.success();
     const delta = SNACK_DELTAS[choice];
-    useEvaStore.setState(s => {
-      const ns = { ...s.stats };
-      (Object.keys(delta) as (keyof typeof ns)[]).forEach(k => {
-        ns[k] = Math.min(100, (ns[k] as number) + (delta[k] as number));
+    const piEffect: Record<string, number> = {};
+    const KEY: Record<string, string> = { hunger: 'fullness', happiness: 'love', energy: 'energy', clean: 'cleanliness', health: 'health' };
+    Object.entries(delta).forEach(([k, v]) => { piEffect[KEY[k] ?? k] = v as number; });
+    sendCommand({ cmd: 'activity', type: 'feed_done', item: choice, effect: piEffect });
+    if (!piState) {
+      useEvaStore.setState(s => {
+        const ns = { ...s.stats };
+        (Object.keys(delta) as (keyof typeof ns)[]).forEach(k => {
+          ns[k] = Math.min(100, (ns[k] as number) + (delta[k] as number));
+        });
+        return { stats: ns, lastToast: { msg: `Mmm! +${delta.hunger} Açlık 😋`, key: Date.now() } };
       });
-      return { stats: ns, lastToast: { msg: `Mmm! +${delta.hunger} Açlık 😋`, key: Date.now() } };
-    });
-    sendCommand({ cmd: 'activity', type: 'feed_done', item: choice });
+    } else {
+      useEvaStore.setState({ lastToast: { msg: 'Mmm! 😋', key: Date.now() } });
+    }
   };
 
   const onRestClose = (completed: boolean) => {
     setActiveModal(null);
-    sendCommand({ cmd: 'activity', type: completed ? 'rest_done' : 'rest_cancel' });
-    if (completed) {
+    if (!completed) { sendCommand({ cmd: 'activity', type: 'rest_cancel' }); return; }
+    Haptics.success();
+    sendCommand({ cmd: 'activity', type: 'rest_done', effect: { energy: 22, health: 3 } });
+    if (!piState) {
       useEvaStore.setState(s => ({
         stats: { ...s.stats, energy: Math.min(100, s.stats.energy + 22), health: Math.min(100, s.stats.health + 3) },
         lastToast: { msg: 'Dinlendi! +22 Enerji ⚡', key: Date.now() },
       }));
+    } else {
+      useEvaStore.setState({ lastToast: { msg: 'Dinlendi! ⚡', key: Date.now() } });
     }
   };
 
   const onBubbleClose = (score: number) => {
     setActiveModal(null);
     if (score > 0) {
-      playgroundDone(score * 2);
-      sendCommand({ cmd: 'activity', type: 'play_done', score, earned: score * 2 });
+      playgroundDone(score * 2);  // notifies Pi (play_done) internally
     } else {
       sendCommand({ cmd: 'activity', type: 'play_cancel' });
     }

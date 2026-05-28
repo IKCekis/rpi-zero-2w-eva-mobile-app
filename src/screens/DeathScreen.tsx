@@ -6,6 +6,7 @@ import {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { clearState } from '../services/StatDecay';
+import { Haptics } from '../services/Haptics';
 
 const REVIVAL_CODE = 'HNKOEE';
 
@@ -41,10 +42,12 @@ export function DeathScreen({ onReviveSoft, onReviveNew }: Props) {
 
   const tryRevive = async () => {
     if (code.trim().toUpperCase() !== REVIVAL_CODE) {
+      Haptics.error();
       setError('Yanlış şifre. Eva sana güveniyor mu?');
       setCode('');
       return;
     }
+    Haptics.success();
     // Correct code: soft revival — disk state is stale but Pi will push fresh
     // stats on next connect; clear local dead-state from disk only.
     await clearState();

@@ -66,6 +66,29 @@ const SPRITES: Record<string, string[]> = {
     '.oYYYoooYYYo..', 'oYYYo...oYYYo.', 'oYYo.....oYYo.',
     'oo.........oo.',
   ],
+  egg: [
+    '....oooo....', '...owwwwo...', '..owwwwwwo..',
+    '.owwwwwwwwo.', '.owwwyywwwo.', '.owwyYYywwo.',
+    '.owwwyywwwo.', '.owwwwwwwwo.', '..owwwwwwo..',
+    '...owwwwo...', '....oooo....',
+  ],
+  flour: [
+    '..oooooo..', '.owwwwwwo.', '.owttttwo.',
+    '.otttttto.', '.ottsstto.', '.ottsstto.',
+    '.otttttto.', '.otttttto.', '.otttttto.',
+    '.oottttoo.', '..oooooo..',
+  ],
+  tomato: [
+    '.....g......', '....ggg.....', '...oo.oo....',
+    '..orrrrrro..', '.orRRrrRRro.', 'orRrrrrrrRro',
+    'orRrrrrrrRro', 'orRRrrrrRRro', '.orRRRRRRo..',
+    '..orRRRRo...', '...oooooo...',
+  ],
+  cheese: [
+    'oooooooooooo', 'oyYYYYYYYYyo', 'oYyYYYYoYYYo',
+    'oYYYYoYYYYYo', 'oYYYYYYYYoYo', '.oYYoYYYYYYo',
+    '..oYYYYYYYYo', '...oYYYYYYoo', '....oooooo..',
+  ],
 };
 
 interface Props {

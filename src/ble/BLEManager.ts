@@ -332,6 +332,12 @@ class EvaBluetoothManager {
     } catch { /* ignore */ }
   }
 
+  // Tell the Pi which face/animation to show on its OLED. Best-effort: silently
+  // no-ops when disconnected (e.g. testing without the device).
+  async sendFace(anim: string, opts: Record<string, unknown> = {}) {
+    await this.sendCommand({ cmd: 'face', anim, ...opts });
+  }
+
   async sendPrefs(prefs: Record<string, unknown>) {
     if (!this.device) return;
     try {

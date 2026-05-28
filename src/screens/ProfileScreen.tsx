@@ -1,7 +1,7 @@
 import React from 'react';
 import { View, Text, ScrollView, StyleSheet } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { useEvaStore } from '../store/useEvaStore';
+import { useEvaStore, xpToNext } from '../store/useEvaStore';
 import { EvaSprite } from '../sprite/EvaSprite';
 import { StatBar } from '../components/StatBar';
 import { CoinHud } from '../components/CoinHud';
@@ -11,10 +11,11 @@ import { BigButton } from '../components/BigButton';
 export default function ProfileScreen() {
   const {
     mood, stats, coins, charge, bleStatus, proximity, rssi,
-    accent = '#7BD3B8', prefs,
+    accent = '#7BD3B8', prefs, level, xp,
   } = useEvaStore();
 
-  const level = 7, xp = 62;
+  const xpNeeded = xpToNext(level);
+  const xpPct = Math.min(100, Math.round((xp / xpNeeded) * 100));
   const insets = useSafeAreaInsets();
 
   return (
@@ -41,10 +42,10 @@ export default function ProfileScreen() {
           <Text style={styles.sub}>blob arkadaş · 4 gün önce evlat edinildi</Text>
           <View style={styles.xpRow}>
             <Text style={styles.xpLabel}>SV {level}</Text>
-            <Text style={styles.xpVal}>{xp}/100 XP</Text>
+            <Text style={styles.xpVal}>{xp}/{xpNeeded} XP</Text>
           </View>
           <View style={styles.xpTrack}>
-            <View style={[styles.xpFill, { width: `${xp}%`, backgroundColor: accent }]} />
+            <View style={[styles.xpFill, { width: `${xpPct}%`, backgroundColor: accent }]} />
           </View>
         </View>
       </View>

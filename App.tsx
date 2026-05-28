@@ -7,6 +7,7 @@ import { AppNavigator } from './src/navigation/AppNavigator';
 import { useEvaStore } from './src/store/useEvaStore';
 import { initMediaWatcher } from './src/services/MediaWatcher';
 import { setupNotifications, checkAndSendStatReminders, sendLongAbsenceReminder } from './src/services/Notifications';
+import { registerBackgroundDecay } from './src/services/BackgroundDecay';
 
 const TICK_MS = 30_000; // real-time decay tick: 30 s
 
@@ -22,10 +23,9 @@ function AppInner() {
   useEffect(() => {
     (async () => {
       await setupNotifications();
-      const result = await restoreFromDisk();
-
-      // Send absence reminder if gone > 3 hours
-      // (restoreFromDisk applies decay; we approximate elapsed via saved timestamp)
+      await restoreFromDisk();
+      // Keep state decaying + reminders firing while backgrounded/suspended.
+      await registerBackgroundDecay();
     })();
 
     // Start the real-time decay ticker

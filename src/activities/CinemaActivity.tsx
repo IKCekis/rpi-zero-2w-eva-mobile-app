@@ -13,7 +13,7 @@ const MOVIES = [
 
 export function CinemaActivity({ onBack }: { onBack: () => void }) {
   const { coins, mood, accent = '#7BD3B8', prefs, spendCoins, cinemaDone } = useEvaStore();
-  const { sendCommand } = useBLE();
+  const { sendCommand, sendFace } = useBLE();
   const [phase, setPhase] = useState<'select' | 'watching' | 'done'>('select');
   const [movie, setMovie] = useState<typeof MOVIES[0] | null>(null);
   const [pct, setPct] = useState(0);
@@ -31,11 +31,13 @@ export function CinemaActivity({ onBack }: { onBack: () => void }) {
     spendCoins(m.cost);
     setMovie(m); setPct(0); setPhase('watching');
     sendCommand({ cmd: 'activity', type: 'cinema_start', movie: m.name });
+    sendFace('cinema_glasses');
+    sendFace('popcorn');
   };
 
   const finish = () => {
-    cinemaDone(sleepy);
-    sendCommand({ cmd: 'activity', type: 'cinema_done', sleepy });
+    cinemaDone(sleepy);  // notifies Pi (cinema_done) internally
+    sendFace(sleepy ? 'sleep' : 'happy');
     setPhase('select'); setMovie(null);
   };
 

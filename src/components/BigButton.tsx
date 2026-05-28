@@ -1,5 +1,6 @@
 import React from 'react';
 import { TouchableOpacity, Text, StyleSheet, ViewStyle } from 'react-native';
+import { Haptics } from '../services/Haptics';
 
 interface Props {
   children:  React.ReactNode;
@@ -11,9 +12,10 @@ interface Props {
 }
 
 export function BigButton({ children, onPress, primary, accent = '#7BD3B8', disabled, style }: Props) {
+  const handlePress = () => { Haptics.tap(); onPress(); };
   return (
     <TouchableOpacity
-      onPress={onPress}
+      onPress={handlePress}
       disabled={disabled}
       activeOpacity={0.8}
       style={[

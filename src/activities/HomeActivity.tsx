@@ -1,12 +1,19 @@
-import React from 'react';
+import React, { useEffect } from 'react';
 import { View, Text, TouchableOpacity, StyleSheet } from 'react-native';
 import { useEvaStore } from '../store/useEvaStore';
+import { useBLE } from '../ble/BLEContext';
 import { ActivityFrame } from '../components/ActivityFrame';
 import { BigButton } from '../components/BigButton';
 import { ItemSprite } from '../sprite/ItemSprite';
+import { Haptics } from '../services/Haptics';
 
 export function HomeActivity({ onBack }: { onBack: () => void }) {
   const { coins, mood, accent = '#7BD3B8', cookedItems, eatCooked, gotoScene } = useEvaStore();
+  const { sendFace } = useBLE();
+
+  useEffect(() => { sendFace('sleep'); }, []);
+
+  const eat = (i: number) => { eatCooked(i); Haptics.success(); sendFace('eat'); };
 
   return (
     <ActivityFrame scene="bedroom" title="Ev"
@@ -27,7 +34,7 @@ export function HomeActivity({ onBack }: { onBack: () => void }) {
           <Text style={styles.label}>Pişirdiğin yemekler · {cookedItems.length}</Text>
           <View style={styles.grid}>
             {cookedItems.map((dish, i) => (
-              <TouchableOpacity key={i} onPress={() => eatCooked(i)}
+              <TouchableOpacity key={i} onPress={() => eat(i)}
                 activeOpacity={0.8} style={styles.dishBtn}>
                 <View style={styles.dishIcon}>
                   <ItemSprite name={dish.sprite} scale={2} />

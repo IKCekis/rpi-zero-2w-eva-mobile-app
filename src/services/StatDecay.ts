@@ -12,7 +12,7 @@
  */
 
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { Stats } from '../store/types';
+import { Stats, CookedDish } from '../store/types';
 
 const SAVE_KEY      = 'eva.state.v2';
 const TIMESTAMP_KEY = 'eva.lastSave';
@@ -66,9 +66,13 @@ export function isDead(stats: Stats): boolean {
 }
 
 export interface PersistedState {
-  stats:     Stats;
-  coins:     number;
-  mediaMode: 'none' | 'music' | 'video';
+  stats:        Stats;
+  coins:        number;
+  mediaMode:    'none' | 'music' | 'video';
+  level?:       number;
+  xp?:          number;
+  inventory?:   Record<string, number>;
+  cookedItems?: CookedDish[];
 }
 
 export async function saveState(state: PersistedState): Promise<void> {

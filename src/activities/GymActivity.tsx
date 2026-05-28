@@ -15,7 +15,7 @@ type Phase = 'select' | 'working' | 'done';
 
 export function GymActivity({ onBack }: { onBack: () => void }) {
   const { coins, mood, accent = '#7BD3B8', prefs, gymDone } = useEvaStore();
-  const { sendCommand } = useBLE();
+  const { sendCommand, sendFace } = useBLE();
   const [phase, setPhase] = useState<Phase>('select');
   const [workout, setWorkout] = useState<typeof WORKOUTS[0] | null>(null);
   const [taps, setTaps] = useState(0);
@@ -25,6 +25,7 @@ export function GymActivity({ onBack }: { onBack: () => void }) {
   const start = (w: typeof WORKOUTS[0]) => {
     setWorkout(w); setTaps(0); setPhase('working');
     sendCommand({ cmd: 'activity', type: 'gym_start', workout: w.name });
+    sendFace('workout');
   };
 
   const tap = () => {
@@ -41,8 +42,8 @@ export function GymActivity({ onBack }: { onBack: () => void }) {
 
   const finish = () => {
     if (!workout) return;
-    gymDone(workout.intensity, likes);
-    sendCommand({ cmd: 'activity', type: 'gym_done', intensity: workout.intensity, likes });
+    gymDone(workout.intensity, likes);  // notifies Pi (gym_done) internally
+    sendFace('happy');
     setPhase('select'); setWorkout(null); setTaps(0);
   };
 

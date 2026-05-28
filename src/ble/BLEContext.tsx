@@ -7,6 +7,7 @@ interface BLEContextValue {
   sendMood:        (mood: string, stats: Record<string, number>) => Promise<void>;
   sendPrefs:       (prefs: Record<string, unknown>) => Promise<void>;
   sendCommand:     (cmd: Record<string, unknown>) => Promise<void>;
+  sendFace:        (anim: string, opts?: Record<string, unknown>) => Promise<void>;
   startScan:       (onDeviceFound: (d: ScannedDevice) => void) => Promise<void>;
   stopScan:        () => void;
   connectToDevice: (scanned: ScannedDevice, isNew: boolean) => Promise<void>;
@@ -23,6 +24,7 @@ const BLEContext = createContext<BLEContextValue>({
   sendMood:        async () => {},
   sendPrefs:       async () => {},
   sendCommand:     async () => {},
+  sendFace:        async () => {},
   startScan:       async () => {},
   stopScan:        () => {},
   connectToDevice: async () => {},
@@ -75,6 +77,7 @@ export function BLEProvider({ children }: { children: React.ReactNode }) {
     sendMood:        (mood, stats) => evaBLE.sendMood(mood, stats),
     sendPrefs:       (prefs)       => evaBLE.sendPrefs(prefs),
     sendCommand:     (cmd)         => evaBLE.sendCommand(cmd),
+    sendFace:        (anim, opts)  => evaBLE.sendFace(anim, opts),
     startScan:       (cb)          => evaBLE.startScan(cb),
     stopScan:        ()            => evaBLE.stopScan(),
     connectToDevice: (d, isNew)    => evaBLE.connectToDevice(d, isNew),

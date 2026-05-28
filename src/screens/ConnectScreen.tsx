@@ -6,6 +6,7 @@ import {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useBLE, ScannedDevice } from '../ble/BLEContext';
 import { useEvaStore } from '../store/useEvaStore';
+import { Haptics } from '../services/Haptics';
 
 export function ConnectScreen() {
   const insets = useSafeAreaInsets();
@@ -69,10 +70,12 @@ export function ConnectScreen() {
     const ok = await verifyPin(pin);
     setVerifying(false);
     if (ok) {
+      Haptics.success();
       if (connecting) await saveDevice(connecting);
       setPinVisible(false);
       setConnecting(null);
     } else {
+      Haptics.error();
       setPinError('Yanlış kod. Eva\'nın ekranına tekrar bak.');
       setPin('');
     }
