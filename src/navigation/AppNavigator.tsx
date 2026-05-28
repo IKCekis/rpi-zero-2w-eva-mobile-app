@@ -79,8 +79,6 @@ export function AppNavigator() {
     );
   }
 
-  if (isDead) return <DeathScreen onRevive={handleRevive} />;
-
   return (
     <NavigationContainer>
       <Stack.Navigator screenOptions={{ headerShown: false }}>
@@ -89,7 +87,14 @@ export function AppNavigator() {
             {() => <OnboardingFlow onComplete={completeOnboarding} />}
           </Stack.Screen>
         ) : bleStatus !== 'connected' ? (
+          // Always pair first — isDead is checked only after BLE is up so the
+          // Pi can confirm the actual state. A stale local dead-flag must not
+          // block pairing with a new (or revived) device.
           <Stack.Screen name="Connect" component={ConnectScreen} />
+        ) : isDead ? (
+          <Stack.Screen name="Death">
+            {() => <DeathScreen onRevive={handleRevive} />}
+          </Stack.Screen>
         ) : (
           <Stack.Screen name="Main" component={MainTabs} />
         )}

@@ -146,7 +146,13 @@ export const useEvaStore = create<EvaState>((set, get) => ({
     });
   },
 
-  setBLEStatus: (bleStatus) => set({ bleStatus }),
+  setBLEStatus: (bleStatus) => {
+    // On connect, clear any stale local dead-flag so a new/healthy Pi doesn't
+    // briefly flash the DeathScreen before its first setPiState arrives.
+    const patch: Partial<EvaState> = { bleStatus };
+    if (bleStatus === 'connected') patch.isDead = false;
+    set(patch);
+  },
   setProximity: (proximity) => set({ proximity }),
   setRssi: (rssi) => set({ rssi }),
 
