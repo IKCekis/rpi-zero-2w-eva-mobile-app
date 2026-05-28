@@ -193,14 +193,20 @@ class EvaBluetoothManager {
         }
       );
 
-      // For saved devices skip PIN; for new devices require PIN confirmation.
-      this.callbacks?.onStatusChange(isNew ? 'pin_required' : 'connected');
-
-      await this.readPrefs();
       if (isNew) {
-        // Keep Android connection alive during PIN entry; RSSI starts after PIN confirmed.
-        this.startKeepalive();
+        // Read PREFS first: Pi may still have _pin_ok=true from a rapid reconnect
+        // right after a successful verify_pin (Android GATT drop before phone confirmed).
+        const prefs = await this.readPrefs();
+        if (prefs?._pin_ok === true) {
+          this.callbacks?.onStatusChange('connected');
+          this.startRSSIPolling();
+        } else {
+          this.callbacks?.onStatusChange('pin_required');
+          this.startKeepalive();
+        }
       } else {
+        this.callbacks?.onStatusChange('connected');
+        await this.readPrefs();
         this.startRSSIPolling();
       }
     } catch {
@@ -341,8 +347,10 @@ class EvaBluetoothManager {
 
   async verifyPin(pin: string): Promise<boolean> {
     this.stopKeepalive();
+    // Snapshot now: STATE_CHAR notifications may overwrite _lastPendingPin
+    // mid-verify if a rapid reconnect causes Pi to push a new pending_pin.
+    const pinSnapshot = this._lastPendingPin;
 
-    // Try write-based verification first
     let writeOk = false;
     try {
       await this.sendCommand({ cmd: 'verify_pin', pin });
@@ -366,9 +374,9 @@ class EvaBluetoothManager {
       }
     }
 
-    // Fallback: Pi sends pending_pin via STATE_CHAR — verify locally.
-    // Works even when GATT writes are unreliable.
-    if (this._lastPendingPin && pin === this._lastPendingPin) {
+    // Fallback: use the PIN snapshot captured before any async ops so that
+    // a STATE_CHAR update mid-verify can't invalidate a correct entry.
+    if (pinSnapshot && pin === pinSnapshot) {
       this.callbacks?.onStatusChange('connected');
       this.startRSSIPolling();
       return true;
