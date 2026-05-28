@@ -1,4 +1,4 @@
-name: Build Expo Android APK
+name: Build Release APK
 
 on:
   workflow_dispatch:
@@ -19,20 +19,15 @@ jobs:
           distribution: temurin
           java-version: 17
 
-      - name: Install deps
-        run: npm install
+      - run: npm install
 
-      - name: Generate Android project
-        run: npx expo prebuild --platform android --non-interactive
+      - run: npx expo prebuild --platform android --non-interactive
 
-      - name: Make gradlew executable
-        run: chmod +x android/gradlew
+      - run: chmod +x android/gradlew
 
-      - name: Build APK
-        run: cd android && ./gradlew assembleDebug
+      - run: cd android && ./gradlew assembleRelease
 
-      - name: Upload APK
-        uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v4
         with:
-          name: app-debug.apk
-          path: android/app/build/outputs/apk/debug/app-debug.apk
+          name: app-release-apk
+          path: android/app/build/outputs/apk/release/app-release.apk
