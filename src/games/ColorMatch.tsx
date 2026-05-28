@@ -1,79 +1,99 @@
-import React, { useState, useRef, useEffect } from 'react';
-import { View, Text, TouchableOpacity, StyleSheet } from 'react-native';
+import React, { useState, useRef } from 'react';
+import { View, Text, TouchableOpacity, StyleSheet, PanResponder, LayoutChangeEvent } from 'react-native';
+import Svg, { Defs, LinearGradient, Stop, Rect } from 'react-native-svg';
 import { useEvaStore } from '../store/useEvaStore';
 import { useBLE } from '../ble/BLEContext';
 import { Haptics } from '../services/Haptics';
 
-const SHOW_SECONDS = 5;
+/**
+ * Color game: match a target color using an HSV picker (hue / saturation /
+ * brightness bars). No time limit — accuracy on confirm (RGB closeness) drives
+ * the reward.
+ */
 
 type RGB = { r: number; g: number; b: number };
-type Phase = 'show' | 'guess' | 'result';
+type Phase = 'pick' | 'result';
 
-const rand = (min: number, max: number) => Math.floor(min + Math.random() * (max - min + 1));
-const clamp255 = (n: number) => Math.max(0, Math.min(255, n));
-const css = (c: RGB) => `rgb(${c.r}, ${c.g}, ${c.b})`;
-const dist = (a: RGB, b: RGB) =>
-  Math.sqrt((a.r - b.r) ** 2 + (a.g - b.g) ** 2 + (a.b - b.b) ** 2);
 const MAX_DIST = Math.sqrt(3 * 255 ** 2);
 
-function buildOptions(target: RGB): RGB[] {
-  const opts: RGB[] = [target];
-  while (opts.length < 8) {
-    const jitter = (): number => {
-      const sign = Math.random() < 0.5 ? -1 : 1;
-      return sign * rand(25, 80);
-    };
-    const cand: RGB = {
-      r: clamp255(target.r + jitter()),
-      g: clamp255(target.g + jitter()),
-      b: clamp255(target.b + jitter()),
-    };
-    if (opts.every(o => dist(o, cand) > 18)) opts.push(cand);
-  }
-  // shuffle
-  for (let i = opts.length - 1; i > 0; i--) {
-    const j = Math.floor(Math.random() * (i + 1));
-    [opts[i], opts[j]] = [opts[j], opts[i]];
-  }
-  return opts;
+function hsvToRgb(h: number, s: number, v: number): RGB {
+  const c = v * s;
+  const x = c * (1 - Math.abs(((h / 60) % 2) - 1));
+  const m = v - c;
+  let r = 0, g = 0, b = 0;
+  if (h < 60)       { r = c; g = x; }
+  else if (h < 120) { r = x; g = c; }
+  else if (h < 180) { g = c; b = x; }
+  else if (h < 240) { g = x; b = c; }
+  else if (h < 300) { r = x; b = c; }
+  else              { r = c; b = x; }
+  return { r: Math.round((r + m) * 255), g: Math.round((g + m) * 255), b: Math.round((b + m) * 255) };
+}
+const css = (c: RGB) => `rgb(${c.r}, ${c.g}, ${c.b})`;
+const dist = (a: RGB, b: RGB) => Math.sqrt((a.r - b.r) ** 2 + (a.g - b.g) ** 2 + (a.b - b.b) ** 2);
+
+function GradientBar({ stops, ratio, onChange }: {
+  stops: { offset: number; color: string }[];
+  ratio: number;
+  onChange: (r: number) => void;
+}) {
+  const [w, setW] = useState(280);
+  const wRef = useRef(280);
+  const idRef = useRef('grad' + Math.random().toString(36).slice(2, 8));
+  const set = (x: number) => { onChange(Math.max(0, Math.min(1, x / wRef.current))); };
+  const pan = useRef(
+    PanResponder.create({
+      onStartShouldSetPanResponder: () => true,
+      onMoveShouldSetPanResponder: () => true,
+      onPanResponderGrant: (e) => { Haptics.selection(); set(e.nativeEvent.locationX); },
+      onPanResponderMove:  (e) => set(e.nativeEvent.locationX),
+    })
+  ).current;
+  const onLayout = (e: LayoutChangeEvent) => { wRef.current = e.nativeEvent.layout.width; setW(e.nativeEvent.layout.width); };
+  return (
+    <View style={styles.bar} onLayout={onLayout} {...pan.panHandlers}>
+      <Svg width={w} height={30}>
+        <Defs>
+          <LinearGradient id={idRef.current} x1="0" y1="0" x2="1" y2="0">
+            {stops.map((s, i) => <Stop key={i} offset={s.offset} stopColor={s.color} />)}
+          </LinearGradient>
+        </Defs>
+        <Rect x={0} y={0} width={w} height={30} rx={8} fill={`url(#${idRef.current})`} />
+      </Svg>
+      <View style={[styles.thumb, { left: Math.max(0, Math.min(w - 24, ratio * w - 12)) }]} />
+    </View>
+  );
 }
 
 export function ColorMatch({ onBack }: { onBack: () => void }) {
   const { accent = '#7BD3B8', playgroundDone } = useEvaStore();
   const { sendCommand, sendFace } = useBLE();
-  const [phase, setPhase]     = useState<Phase>('show');
-  const [count, setCount]     = useState(SHOW_SECONDS);
-  const [target]              = useState<RGB>(() => ({ r: rand(30, 225), g: rand(30, 225), b: rand(30, 225) }));
-  const [options]             = useState<RGB[]>(() => []);
-  const optsRef               = useRef<RGB[]>([]);
-  const [picked, setPicked]   = useState<RGB | null>(null);
-  const timer = useRef<ReturnType<typeof setInterval> | null>(null);
+  const [phase, setPhase] = useState<Phase>('pick');
+  const [target] = useState<RGB>(() => hsvToRgb(
+    Math.random() * 360,
+    0.5 + Math.random() * 0.5,
+    0.55 + Math.random() * 0.45,
+  ));
+  const [h, setH] = useState(180);
+  const [s, setS] = useState(0.5);
+  const [v, setV] = useState(0.7);
 
-  if (optsRef.current.length === 0) optsRef.current = buildOptions(target);
-
-  useEffect(() => {
+  React.useEffect(() => {
     sendCommand({ cmd: 'game', type: 'colormatch_start' });
     sendFace('play');
-    timer.current = setInterval(() => {
-      setCount(c => {
-        if (c <= 1) {
-          if (timer.current) clearInterval(timer.current);
-          setPhase('guess');
-          return 0;
-        }
-        return c - 1;
-      });
-    }, 1000);
-    return () => { if (timer.current) clearInterval(timer.current); };
   }, []);
 
-  const accuracy = picked ? Math.max(0, 1 - dist(picked, target) / MAX_DIST) : 0;
-  const earned = Math.round(accuracy * 12);
+  const current = hsvToRgb(h, s, v);
+  const accuracy = Math.max(0, 1 - dist(current, target) / MAX_DIST);
+  const earned = Math.round(2 + accuracy * 13);
 
-  const pick = (c: RGB) => {
-    setPicked(c);
+  const hueStops = [0, 1, 2, 3, 4, 5, 6].map(i => ({ offset: i / 6, color: css(hsvToRgb((i * 60) % 360, 1, 1)) }));
+  const satStops = [{ offset: 0, color: css(hsvToRgb(h, 0, v)) }, { offset: 1, color: css(hsvToRgb(h, 1, v)) }];
+  const valStops = [{ offset: 0, color: css(hsvToRgb(h, s, 0)) }, { offset: 1, color: css(hsvToRgb(h, s, 1)) }];
+
+  const confirm = () => {
     setPhase('result');
-    if (dist(c, target) < 40) Haptics.success(); else Haptics.error();
+    if (accuracy > 0.9) Haptics.success(); else Haptics.error();
   };
 
   const collect = () => {
@@ -83,65 +103,76 @@ export function ColorMatch({ onBack }: { onBack: () => void }) {
     onBack();
   };
 
-  if (phase === 'show') return (
-    <View style={[styles.full, { backgroundColor: '#1d2733' }]}>
-      <Text style={styles.title}>🎨 Renk Tahmini</Text>
-      <Text style={styles.sub}>Bu rengi aklında tut!</Text>
-      <View style={[styles.bigSwatch, { backgroundColor: css(target) }]} />
-      <Text style={styles.count}>{count}</Text>
-      <TouchableOpacity onPress={onBack}><Text style={styles.back}>← Geri</Text></TouchableOpacity>
-    </View>
-  );
-
-  if (phase === 'guess') return (
-    <View style={[styles.full, { backgroundColor: '#1d2733' }]}>
-      <Text style={styles.title}>Hangisiydi?</Text>
-      <Text style={styles.sub}>En yakın olduğunu düşündüğünü seç</Text>
-      <View style={styles.optGrid}>
-        {optsRef.current.map((c, i) => (
-          <TouchableOpacity key={i} activeOpacity={0.8} onPress={() => pick(c)}
-            style={[styles.optSwatch, { backgroundColor: css(c) }]} />
-        ))}
+  if (phase === 'result') {
+    return (
+      <View style={[styles.full, { backgroundColor: '#1d2733' }]}>
+        <Text style={styles.title}>{accuracy > 0.92 ? 'Mükemmel göz!' : accuracy > 0.75 ? 'Çok iyi!' : 'İdare eder'}</Text>
+        <View style={styles.compareRow}>
+          <View style={styles.compareCol}>
+            <View style={[styles.compareSwatch, { backgroundColor: css(target) }]} />
+            <Text style={styles.compareLbl}>Hedef</Text>
+          </View>
+          <View style={styles.compareCol}>
+            <View style={[styles.compareSwatch, { backgroundColor: css(current) }]} />
+            <Text style={styles.compareLbl}>Senin</Text>
+          </View>
+        </View>
+        <Text style={styles.bigStat}>%{Math.round(accuracy * 100)}</Text>
+        <Text style={styles.sub}>isabet · +{earned}¢ + XP</Text>
+        <TouchableOpacity onPress={collect} activeOpacity={0.8} style={[styles.btn, { backgroundColor: accent }]}>
+          <Text style={styles.btnTxt}>Ödülü al</Text>
+        </TouchableOpacity>
       </View>
-    </View>
-  );
+    );
+  }
 
   return (
     <View style={[styles.full, { backgroundColor: '#1d2733' }]}>
-      <Text style={styles.title}>{accuracy > 0.92 ? 'Mükemmel göz!' : accuracy > 0.75 ? 'Çok iyi!' : 'İdare eder'}</Text>
+      <Text style={styles.title}>🎨 Renk Tutturma</Text>
+      <Text style={styles.sub}>Sürgülerle hedef renge en yakınını yakala. Süre yok!</Text>
+
       <View style={styles.compareRow}>
         <View style={styles.compareCol}>
           <View style={[styles.compareSwatch, { backgroundColor: css(target) }]} />
-          <Text style={styles.compareLbl}>Doğru</Text>
+          <Text style={styles.compareLbl}>Hedef</Text>
         </View>
         <View style={styles.compareCol}>
-          <View style={[styles.compareSwatch, { backgroundColor: picked ? css(picked) : '#000' }]} />
+          <View style={[styles.compareSwatch, { backgroundColor: css(current), borderColor: accent }]} />
           <Text style={styles.compareLbl}>Senin</Text>
         </View>
       </View>
-      <Text style={styles.bigStat}>%{Math.round(accuracy * 100)}</Text>
-      <Text style={styles.sub}>isabet · +{earned}¢</Text>
-      <TouchableOpacity onPress={collect} activeOpacity={0.8} style={[styles.btn, { backgroundColor: accent }]}>
-        <Text style={styles.btnTxt}>Jetonları al</Text>
+
+      <View style={styles.pickers}>
+        <Text style={styles.pickLbl}>Renk tonu</Text>
+        <GradientBar stops={hueStops} ratio={h / 360} onChange={r => setH(r * 360)} />
+        <Text style={styles.pickLbl}>Canlılık</Text>
+        <GradientBar stops={satStops} ratio={s} onChange={setS} />
+        <Text style={styles.pickLbl}>Parlaklık</Text>
+        <GradientBar stops={valStops} ratio={v} onChange={setV} />
+      </View>
+
+      <TouchableOpacity onPress={confirm} activeOpacity={0.8} style={[styles.btn, { backgroundColor: accent }]}>
+        <Text style={styles.btnTxt}>Onayla</Text>
       </TouchableOpacity>
+      <TouchableOpacity onPress={onBack}><Text style={styles.back}>← Geri</Text></TouchableOpacity>
     </View>
   );
 }
 
 const styles = StyleSheet.create({
-  full:        { flex: 1, alignItems: 'center', justifyContent: 'center', gap: 16, padding: 24 },
+  full:        { flex: 1, alignItems: 'center', justifyContent: 'center', gap: 14, padding: 24 },
   title:       { fontSize: 26, fontWeight: '900', color: '#fff', textAlign: 'center' },
-  sub:         { fontSize: 14, color: 'rgba(255,255,255,0.7)', textAlign: 'center' },
-  bigSwatch:   { width: 180, height: 180, borderRadius: 24, borderWidth: 3, borderColor: '#fff' },
-  count:       { fontSize: 48, fontWeight: '900', color: '#FFD93D' },
-  optGrid:     { width: 280, flexDirection: 'row', flexWrap: 'wrap', gap: 10, justifyContent: 'center' },
-  optSwatch:   { width: 80, height: 80, borderRadius: 16, borderWidth: 2, borderColor: 'rgba(255,255,255,0.3)' },
+  sub:         { fontSize: 13, color: 'rgba(255,255,255,0.7)', textAlign: 'center' },
   compareRow:  { flexDirection: 'row', gap: 24 },
   compareCol:  { alignItems: 'center', gap: 6 },
-  compareSwatch:{ width: 90, height: 90, borderRadius: 16, borderWidth: 2, borderColor: '#fff' },
+  compareSwatch:{ width: 96, height: 96, borderRadius: 18, borderWidth: 3, borderColor: '#fff' },
   compareLbl:  { fontSize: 12, color: 'rgba(255,255,255,0.6)' },
-  bigStat:     { fontSize: 56, fontWeight: '900', color: '#FFD93D' },
+  pickers:     { width: '100%', gap: 6 },
+  pickLbl:     { fontSize: 11, fontWeight: '700', color: 'rgba(255,255,255,0.7)', textTransform: 'uppercase', letterSpacing: 0.5 },
+  bar:         { width: '100%', height: 30, justifyContent: 'center', marginBottom: 6 },
+  thumb:       { position: 'absolute', top: 1, width: 24, height: 28, borderRadius: 7, borderWidth: 3, borderColor: '#fff', backgroundColor: 'transparent' },
+  bigStat:     { fontSize: 52, fontWeight: '900', color: '#FFD93D' },
   btn:         { paddingHorizontal: 40, paddingVertical: 14, borderRadius: 16 },
   btnTxt:      { fontSize: 18, fontWeight: '800', color: '#fff' },
-  back:        { fontSize: 13, color: 'rgba(255,255,255,0.5)', marginTop: 8 },
+  back:        { fontSize: 13, color: 'rgba(255,255,255,0.5)', marginTop: 4 },
 });

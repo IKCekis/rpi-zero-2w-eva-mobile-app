@@ -77,7 +77,7 @@ interface EvaState {
   useItem:         (id: string) => void;
   addXp:           (amount: number) => void;
   spendCoins:      (amount: number) => void;
-  playgroundDone:  (coins: number) => void;
+  playgroundDone:  (coins: number, xp?: number) => void;
   toast:           (msg: string) => void;
   applyRealtime:   (deltaMs: number) => void;  // called by a 30 s ticker
   restoreFromDisk: () => Promise<void>;
@@ -357,14 +357,17 @@ export const useEvaStore = create<EvaState>((set, get) => ({
     set({ coins: coins - amount });
   },
 
-  playgroundDone: (earned) => {
+  // Every game awards BOTH coins and XP in a fair, comparable band.
+  playgroundDone: (earnedRaw, xpRaw) => {
+    const coins = Math.max(2, Math.min(15, Math.round(earnedRaw)));
+    const xp    = Math.max(8, Math.min(30, Math.round(xpRaw ?? coins * 2)));
     const delta: Partial<Stats> = { happiness: 8, energy: -6 };
-    set({ lastToast: { msg: `+${earned}¢ kazandın!`, key: Date.now() } });
+    set({ lastToast: { msg: `+${coins}¢ · +${xp} XP`, key: Date.now() } });
     _piSend?.({ cmd: 'activity', type: 'play_done', effect: toPiDelta(delta),
-                coins: earned, score: Math.min(1, earned / 10) });
+                coins, xp, score: Math.min(1, coins / 12) });
     if (get().piState) return;
-    set(s => { const ns = modStats(s.stats, delta); return { coins: s.coins + earned, stats: ns, mood: moodFromStats(ns) }; });
-    get().addXp(8 + earned);
+    set(s => { const ns = modStats(s.stats, delta); return { coins: s.coins + coins, stats: ns, mood: moodFromStats(ns) }; });
+    get().addXp(xp);
   },
 
   toast: (msg) => set({ lastToast: { msg, key: Date.now() } }),

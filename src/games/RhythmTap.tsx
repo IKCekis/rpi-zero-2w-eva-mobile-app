@@ -62,7 +62,7 @@ export function RhythmTap({ onBack }: { onBack: () => void }) {
   };
 
   const collect = () => {
-    const earned = hits;                  // 1 coin per clean hit
+    const earned = hits * 2;              // 2 coins per clean hit
     playgroundDone(earned);
     sendCommand({ cmd: 'game', type: 'rhythm_done', hits, earned });
     sendFace('happy');

@@ -40,9 +40,10 @@ interface Tile {
   need:   number;            // ingredient units required (0 for tools)
 }
 
-const SLOT_MS = 1900;        // time per action slot (slow, real-cooking feel)
-const WIN     = 0.34;        // ± green window, in slot units
+const SLOT_MS = 3200;        // time per action slot (slow, real-cooking pace)
+const WIN     = 0.42;        // ± green window, in slot units (generous)
 const TICK_MS = 16;
+const LEAD_MS = 1000;        // anticipation before the first action
 
 function toolAction(t: ToolKind): Action {
   return { matchKey: `tool:${t}`, kind: 'tool', id: t, label: TOOL_META[t].label, emoji: TOOL_META[t].emoji };
@@ -101,27 +102,29 @@ export function CookStage({ recipe, accent, onConsume, onDone }: Props) {
 
   const [playhead, setPlayhead] = useState(0);     // 0..100 %
   const [added, setAdded]       = useState<Record<string, number>>({});
+  const [pile, setPile]         = useState<{ sprite?: string; emoji?: string }[]>([]);
   const [flash, setFlash]       = useState<{ key: string; type: 'hit' | 'late' | 'wrong' } | null>(null);
 
   const pRef       = useRef(0);                     // playhead in slot units
-  const elapsedRef = useRef(0);
+  const elapsedRef = useRef(-LEAD_MS);              // negative = lead-in
   const filledRef  = useRef<boolean[]>([]);
   const scoresRef  = useRef<number[]>([]);
   const tickRef    = useRef<ReturnType<typeof setInterval> | null>(null);
   const potRef     = useRef<View>(null);
   const potRectRef = useRef<{ x: number; y: number; w: number; h: number } | null>(null);
   const doneRef    = useRef(false);
+  const potScale   = useRef(new Animated.Value(1)).current;
 
   useEffect(() => {
     tickRef.current = setInterval(() => {
       elapsedRef.current += TICK_MS;
       const p = elapsedRef.current / SLOT_MS;
       pRef.current = p;
-      const passed = Math.min(Math.floor(p), N);
+      const passed = Math.min(Math.max(0, Math.floor(p)), N);
       for (let i = 0; i < passed; i++) {
         if (!filledRef.current[i] && scoresRef.current[i] === undefined) scoresRef.current[i] = 0;
       }
-      setPlayhead(Math.min(100, (p / N) * 100));
+      setPlayhead(Math.max(0, Math.min(100, (p / N) * 100)));
       if (p >= N) finish();
     }, TICK_MS);
     return () => { if (tickRef.current) clearInterval(tickRef.current); };
@@ -153,9 +156,16 @@ export function CookStage({ recipe, accent, onConsume, onDone }: Props) {
     setTimeout(() => setFlash(null), 200);
   };
 
+  const plopPot = () => {
+    Animated.sequence([
+      Animated.timing(potScale, { toValue: 1.12, duration: 90, useNativeDriver: true }),
+      Animated.spring(potScale, { toValue: 1, useNativeDriver: true, bounciness: 8 }),
+    ]).start();
+  };
+
   const resolveDrop = (tileKey: string) => {
     const i = Math.floor(pRef.current);
-    if (i >= N || doneRef.current) return;
+    if (i < 0 || i >= N || doneRef.current) return;
     if (filledRef.current[i]) return;
     const a = actions[i];
     if (tileKey !== a.matchKey) { Haptics.error(); flashTile(tileKey, 'wrong'); return; }
@@ -167,6 +177,8 @@ export function CookStage({ recipe, accent, onConsume, onDone }: Props) {
 
     filledRef.current[i] = true;
     scoresRef.current[i] = score;
+    plopPot();
+    setPile(prev => [...prev, { sprite: a.sprite, emoji: a.emoji }]);
     if (a.kind === 'ingredient') {
       onConsume(a.id);
       setAdded(prev => ({ ...prev, [a.matchKey]: (prev[a.matchKey] ?? 0) + 1 }));
@@ -177,7 +189,8 @@ export function CookStage({ recipe, accent, onConsume, onDone }: Props) {
     if (overPot(mx, my)) resolveDrop(key);
   };
 
-  const activeIdx = Math.min(N - 1, Math.floor((playhead / 100) * N));
+  const leadIn = pRef.current < 0;
+  const activeIdx = Math.min(N - 1, Math.max(0, Math.floor((playhead / 100) * N)));
   const activeAction = actions[activeIdx];
   const activeFilled = filledRef.current[activeIdx];
 
@@ -185,9 +198,11 @@ export function CookStage({ recipe, accent, onConsume, onDone }: Props) {
     <View style={styles.root}>
       {/* Prompt */}
       <Text style={styles.prompt}>
-        {activeAction
-          ? (activeFilled ? '👌 sıradakini bekle…' : `Şimdi: ${activeAction.kind === 'tool' ? activeAction.emoji + ' ' : ''}${activeAction.label}`)
-          : 'Hazır!'}
+        {leadIn
+          ? '🍳 Hazırlan…'
+          : activeAction
+            ? (activeFilled ? '👌 sıradakini bekle…' : `Şimdi: ${activeAction.kind === 'tool' ? activeAction.emoji + ' ' : ''}${activeAction.label}`)
+            : 'Hazır!'}
       </Text>
 
       {/* Timeline — single pass, non-looping */}
@@ -213,9 +228,19 @@ export function CookStage({ recipe, accent, onConsume, onDone }: Props) {
 
       {/* Pot (drop target) */}
       <View style={styles.potArea}>
-        <View ref={potRef} onLayout={measurePot} style={styles.pot}>
+        <Animated.View ref={potRef} onLayout={measurePot} style={[styles.pot, { transform: [{ scale: potScale }] }]}>
           <Text style={styles.potEmoji}>🍲</Text>
-        </View>
+        </Animated.View>
+        {/* What's gone into the pot so far */}
+        {pile.length > 0 && (
+          <View style={styles.pile}>
+            {pile.map((p, i) => (
+              p.sprite
+                ? <View key={i} style={styles.pileChip}><ItemSprite name={p.sprite} scale={1.0} /></View>
+                : <Text key={i} style={styles.pileEmoji}>{p.emoji}</Text>
+            ))}
+          </View>
+        )}
         <Text style={styles.potHint}>Tezgahtan tencereye sürükle</Text>
       </View>
 
@@ -294,6 +319,9 @@ const styles = StyleSheet.create({
   potArea:     { flex: 1, alignItems: 'center', justifyContent: 'center', gap: 8 },
   pot:         { width: 130, height: 130, borderRadius: 28, backgroundColor: '#fff', borderWidth: 3, borderColor: '#1d2733', alignItems: 'center', justifyContent: 'center', shadowColor: '#000', shadowOpacity: 0.12, shadowRadius: 10, elevation: 5 },
   potEmoji:    { fontSize: 72 },
+  pile:        { flexDirection: 'row', flexWrap: 'wrap', gap: 4, justifyContent: 'center', maxWidth: 220 },
+  pileChip:    { width: 22, height: 22, alignItems: 'center', justifyContent: 'center' },
+  pileEmoji:   { fontSize: 18 },
   potHint:     { fontSize: 12, color: '#7a6f5e' },
   counterLabel:{ fontSize: 10, fontWeight: '800', color: '#7a6f5e', letterSpacing: 1.5 },
   counter:     { gap: 10, paddingVertical: 4, paddingRight: 16 },
