@@ -50,7 +50,7 @@ export function AppNavigator() {
   const [loading,   setLoading]   = useState(true);
   const [onboarded, setOnboarded] = useState(false);
 
-  const { isDead, revive, restoreFromDisk, bleStatus } = useEvaStore();
+  const { isDead, revive, reviveSoft, restoreFromDisk, bleStatus } = useEvaStore();
 
   useEffect(() => {
     (async () => {
@@ -66,7 +66,13 @@ export function AppNavigator() {
     setOnboarded(true);
   };
 
-  const handleRevive = async () => {
+  // Correct revival code: stats reset to 50%, profile/level/coins preserved, no re-onboarding.
+  const handleReviveSoft = () => {
+    reviveSoft();
+  };
+
+  // New Eva: full reset + trigger fresh onboarding.
+  const handleReviveNew = () => {
     revive();
     setOnboarded(false);
   };
@@ -93,7 +99,7 @@ export function AppNavigator() {
           <Stack.Screen name="Connect" component={ConnectScreen} />
         ) : isDead ? (
           <Stack.Screen name="Death">
-            {() => <DeathScreen onRevive={handleRevive} />}
+            {() => <DeathScreen onReviveSoft={handleReviveSoft} onReviveNew={handleReviveNew} />}
           </Stack.Screen>
         ) : (
           <Stack.Screen name="Main" component={MainTabs} />

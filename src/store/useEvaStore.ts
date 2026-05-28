@@ -68,7 +68,8 @@ interface EvaState {
   applyRealtime:   (deltaMs: number) => void;  // called by a 30 s ticker
   restoreFromDisk: () => Promise<void>;
   persistToDisk:   () => Promise<void>;
-  revive:          () => void; // called after HNKOEE code accepted
+  revive:          () => void; // new Eva — full reset + triggers onboarding
+  reviveSoft:      () => void; // correct code — stats reset to 50%, profile kept
 }
 
 const INITIAL_STATS: Stats = {
@@ -313,6 +314,17 @@ export const useEvaStore = create<EvaState>((set, get) => ({
       mood:        'happy',
       mediaMode:   'none',
       mediaStart:  0,
+    });
+  },
+
+  reviveSoft: () => {
+    // Keeps coins, inventory, prefs, piState (level/xp from Pi) — only resets stats.
+    set({
+      isDead:     false,
+      stats:      { hunger: 50, happiness: 50, energy: 50, clean: 60, health: 50 },
+      mood:       'happy',
+      mediaMode:  'none',
+      mediaStart: 0,
     });
   },
 }));
