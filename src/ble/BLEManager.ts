@@ -1,6 +1,10 @@
 import { BleManager, Device, State } from 'react-native-ble-plx';
 import { Platform, PermissionsAndroid } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+// React Native has no global Buffer. Without this import every Buffer.from()
+// below throws (silently caught), so GATT writes never send and reads/notify
+// never parse — which silently broke all PIN verification and command sending.
+import { Buffer } from 'buffer';
 import {
   EVA_DEVICE_NAME,
   EVA_SERVICE_UUID,
