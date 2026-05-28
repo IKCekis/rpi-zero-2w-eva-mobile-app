@@ -5,13 +5,15 @@ import { useBLE } from '../ble/BLEContext';
 import { ActivityFrame } from '../components/ActivityFrame';
 import { ItemSprite } from '../sprite/ItemSprite';
 
+// Restaurant = convenience premium: instant, but pricier than cooking the same
+// dish at home from market ingredients (see src/data/recipes.ts).
 const MENU = [
-  { id: 'apple', name: 'Elma',  cost: 2,  fills: { hunger: 12, happiness: 4 } },
-  { id: 'ramen', name: 'Ramen', cost: 6,  fills: { hunger: 32, happiness: 8 } },
-  { id: 'pizza', name: 'Pizza', cost: 9,  fills: { hunger: 40, happiness: 14 } },
-  { id: 'cake',  name: 'Pasta', cost: 7,  fills: { hunger: 18, happiness: 22 } },
-  { id: 'soda',  name: 'Soda',  cost: 3,  fills: { hunger: 4,  happiness: 10 } },
-  { id: 'candy', name: 'Şeker', cost: 2,  fills: { happiness: 12 } },
+  { id: 'apple', name: 'Elma',  cost: 4,  fills: { hunger: 12, happiness: 4 } },
+  { id: 'ramen', name: 'Ramen', cost: 9,  fills: { hunger: 32, happiness: 8 } },
+  { id: 'pizza', name: 'Pizza', cost: 15, fills: { hunger: 40, happiness: 14 } },
+  { id: 'cake',  name: 'Pasta', cost: 13, fills: { hunger: 18, happiness: 22 } },
+  { id: 'soda',  name: 'Soda',  cost: 5,  fills: { hunger: 4,  happiness: 10 } },
+  { id: 'candy', name: 'Şeker', cost: 4,  fills: { happiness: 12 } },
 ];
 
 export function RestaurantActivity({ onBack }: { onBack: () => void }) {
