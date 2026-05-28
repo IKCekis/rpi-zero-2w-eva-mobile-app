@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, useCallback } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { View, Text, TouchableOpacity, StyleSheet } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useEvaStore } from '../store/useEvaStore';
@@ -9,7 +9,7 @@ import { ItemSprite } from '../sprite/ItemSprite';
 import { Haptics } from '../services/Haptics';
 import { RECIPES, RecipeDef, dishFromRecipe } from '../data/recipes';
 import { ITEMS } from '../data/items';
-import { StepStage } from '../cooking/StepStage';
+import { CookStage } from '../cooking/CookStage';
 import { RecipeBuilder } from '../screens/RecipeBuilder';
 import { loadCustomRecipes } from '../services/CustomRecipes';
 
@@ -26,13 +26,10 @@ export function KitchenActivity({ onBack }: { onBack: () => void }) {
 
   const [phase, setPhase]   = useState<Phase>('select');
   const [recipe, setRecipe] = useState<RecipeDef | null>(null);
-  const [stepIdx, setStepIdx] = useState(0);
   const [quality, setQuality] = useState<Quality | null>(null);
   const [custom, setCustom] = useState<RecipeDef[]>([]);
   const [showBuilder, setShowBuilder] = useState(false);
 
-  const scoresRef  = useRef<number[]>([]);
-  const stepIdxRef = useRef(0);
   const likes = prefs?.likesCooking;
 
   const reloadCustom = useCallback(() => { loadCustomRecipes().then(setCustom); }, []);
@@ -49,34 +46,15 @@ export function KitchenActivity({ onBack }: { onBack: () => void }) {
       .map(ing => ITEMS[ing.id]?.name ?? ing.id)
       .join(', ');
 
-  // ── Start: consume ingredients, run the step pipeline ─────────────────────
+  // ── Start: ingredients are consumed on-drop inside CookStage ──────────────
   const startCooking = (r: RecipeDef) => {
-    for (const ing of r.ingredients) {
-      if (!consumeItem(ing.id, ing.qty)) return; // availability pre-checked
-    }
-    scoresRef.current = [];
-    stepIdxRef.current = 0;
-    setRecipe(r); setStepIdx(0); setQuality(null); setPhase('cooking');
+    setRecipe(r); setQuality(null); setPhase('cooking');
     sendCommand({ cmd: 'activity', type: 'cook_start', dish: r.name });
     sendFace('cook');
   };
 
-  const handleStepDone = (q: number) => {
-    scoresRef.current.push(q);
-    const r = recipe;
-    if (!r) return;
-    const nextIdx = stepIdxRef.current + 1;
-    if (nextIdx < r.steps.length) {
-      stepIdxRef.current = nextIdx;
-      setStepIdx(nextIdx);
-    } else {
-      finishCooking(r);
-    }
-  };
-
-  const finishCooking = (r: RecipeDef) => {
-    const scores = scoresRef.current;
-    const avg = scores.length ? scores.reduce((s, v) => s + v, 0) / scores.length : 0;
+  // CookStage reports the aggregate quality (0..1) of the whole dish.
+  const finishCooking = (r: RecipeDef, avg: number) => {
     const q: Quality = avg >= 0.85 ? 'perfect' : avg >= 0.6 ? 'good' : avg >= 0.3 ? 'raw' : 'burned';
     setQuality(q); setPhase('done');
 
@@ -97,8 +75,7 @@ export function KitchenActivity({ onBack }: { onBack: () => void }) {
   };
 
   const reset = () => {
-    setPhase('select'); setRecipe(null); setStepIdx(0); setQuality(null);
-    scoresRef.current = []; stepIdxRef.current = 0;
+    setPhase('select'); setRecipe(null); setQuality(null);
   };
 
   // ── Recipe builder overlay ────────────────────────────────────────────────
@@ -114,20 +91,17 @@ export function KitchenActivity({ onBack }: { onBack: () => void }) {
 
   // ── Cooking: plain full-screen (no ScrollView, so drag isn't intercepted) ──
   if (phase === 'cooking' && recipe) {
-    const stepType = recipe.steps[stepIdx];
     return (
       <View style={[styles.cookRoot, { paddingTop: insets.top + 8, paddingBottom: insets.bottom + 12 }]}>
         <View style={styles.cookHeader}>
           <Text style={styles.cookTitle}>{recipe.name} hazırlanıyor…</Text>
           <TouchableOpacity onPress={reset}><Text style={styles.abort}>Vazgeç</Text></TouchableOpacity>
         </View>
-        <StepStage
-          key={stepIdx}
-          step={stepType}
-          stepIndex={stepIdx}
-          totalSteps={recipe.steps.length}
+        <CookStage
+          recipe={recipe}
           accent={accent}
-          onDone={handleStepDone}
+          onConsume={consumeItem}
+          onDone={(q) => finishCooking(recipe, q)}
         />
       </View>
     );
