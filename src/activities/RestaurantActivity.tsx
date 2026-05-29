@@ -18,11 +18,14 @@ const MENU = [
 
 export function RestaurantActivity({ onBack }: { onBack: () => void }) {
   const { coins, mood, accent = '#7BD3B8', orderFood } = useEvaStore();
-  const { sendCommand } = useBLE();
+  const { sendFace } = useBLE();
 
   const order = (item: typeof MENU[0]) => {
+    // orderFood already sends the feed_done activity (with the coin cost); only
+    // drive the OLED eating face here — sending a second 'eat' activity would
+    // double-apply the fullness gain on the Pi.
     orderFood(item as Parameters<typeof orderFood>[0]);
-    sendCommand({ cmd: 'activity', type: 'eat', item: item.name });
+    sendFace('eat');
   };
 
   return (

@@ -1,6 +1,7 @@
 import React from 'react';
 import { View, Text, TouchableOpacity, StyleSheet } from 'react-native';
 import { useEvaStore } from '../store/useEvaStore';
+import { useBLE } from '../ble/BLEContext';
 import { ActivityFrame } from '../components/ActivityFrame';
 import { ItemSprite } from '../sprite/ItemSprite';
 import { BUYABLE_ITEMS, ItemDef } from '../data/items';
@@ -11,6 +12,7 @@ const KIND_LABEL = { ingredient: 'Malzemeler', food: 'Yemekler', special: 'Özel
 
 export function MarketActivity({ onBack }: { onBack: () => void }) {
   const { coins, mood, accent, prefs, buyItem, spendCoins } = useEvaStore();
+  const { sendFace } = useBLE();
   const likes = prefs?.likesShopping ?? false;
 
   const buy = (item: ItemDef) => {
@@ -19,6 +21,7 @@ export function MarketActivity({ onBack }: { onBack: () => void }) {
     spendCoins(cost);              // wallet debit (Pi-owned when connected)
     buyItem(item.id, 1);          // stores in bag + notifies Pi (market_buy)
     Haptics.success();
+    sendFace('happy');             // shopping joy on the OLED
   };
 
   const effectLabel = (item: ItemDef) =>
